@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!--
+  Top-level GP7 robot description.
+
+  xacro args:
+    gazebo   (true)  include Gazebo plugins (set false for RViz-only use)
+    gz_hold  (true)  hold the pose with Gazebo JointPositionControllers
+-->
+<robot name="gp7" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="gazebo" default="true"/>
+  <xacro:arg name="gz_hold" default="true"/>
+
+  <xacro:include filename="$(find gp7_description)/urdf/gp7_macro.xacro"/>
+  <xacro:gp7 prefix=""/>
+
+  <!-- Bolt the robot base to the world origin (0, 0, 0), as the task requires. -->
+  <link name="world"/>
+  <joint name="world-base_link" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:if value="$(arg gazebo)">
+    <xacro:include filename="$(find gp7_description)/urdf/gp7.gazebo.xacro"/>
+    <xacro:gp7_gazebo prefix="" gz_hold="$(arg gz_hold)"/>
+  </xacro:if>
+</robot>

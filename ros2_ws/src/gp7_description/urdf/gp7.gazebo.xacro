@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo (gz-sim Harmonic) extras for the GP7.
+
+  Step 1 has no ROS 2 control yet, so without help the arm would simply
+  collapse under gravity. We use two plain Gazebo systems (no ROS involved):
+
+  * JointStatePublisher      - publishes joint angles on
+                               /world/<world>/model/gp7/joint_state
+                               (bridged to ROS /joint_states by gp7_gazebo).
+  * JointPositionController  - one per joint, holds the home pose. In velocity
+                               mode the joint moves to its target at up to
+                               cmd_max (set to the datasheet max speed).
+                               Poke a joint from a terminal, e.g.
+                               gz topic -t /gp7/joint_2_l/cmd_pos -m gz.msgs.Double -p 'data: 0.5'
+
+  These hold controllers will be replaced by gz_ros2_control in the control
+  step (set gz_hold:=false then).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Hold one joint at its commanded position (Gazebo-only controller). -->
+  <xacro:macro name="gz_hold_joint" params="prefix name">
+    <gazebo>
+      <plugin filename="gz-sim-joint-position-controller-system"
+              name="gz::sim::systems::JointPositionController">
+        <joint_name>${prefix}${name}</joint_name>
+        <topic>/gp7/${prefix}${name}/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands>
+        <cmd_max>${radians(lim[name]['velocity_deg_s'])}</cmd_max>
+        <cmd_min>${-radians(lim[name]['velocity_deg_s'])}</cmd_min>
+        <initial_position>0.0</initial_position>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="gp7_gazebo" params="prefix:='' gz_hold:=true">
+    <gazebo>
+      <plugin filename="gz-sim-joint-state-publisher-system"
+              name="gz::sim::systems::JointStatePublisher"/>
+    </gazebo>
+
+    <xacro:if value="${gz_hold}">
+      <xacro:gz_hold_joint prefix="${prefix}" name="joint_1_s"/>
+      <xacro:gz_hold_joint prefix="${prefix}" name="joint_2_l"/>
+      <xacro:gz_hold_joint prefix="${prefix}" name="joint_3_u"/>
+      <xacro:gz_hold_joint prefix="${prefix}" name="joint_4_r"/>
+      <xacro:gz_hold_joint prefix="${prefix}" name="joint_5_b"/>
+      <xacro:gz_hold_joint prefix="${prefix}" name="joint_6_t"/>
+    </xacro:if>
+    <!-- Note: self-collision is off by default in Gazebo, which we want here
+         because neighbouring convex-hull collision meshes overlap. -->
+  </xacro:macro>
+</robot>

@@ -1,0 +1,21 @@
+# YASKAWA GP7 nominal kinematic dimensions [m].
+#
+# Single source of truth: read by the URDF (urdf/gp7_macro.xacro) and by
+# tools/prepare_meshes.py. Later, the D-H / IK code should read it too.
+#
+# Values are GP7 nominal dimensions, cross-checked against the STL meshes by
+# fitting circles to the bearing surfaces (tools/measure_joint_axes.py):
+#   d1 : base_link -> link_1_s split = 198 mm base top + 132 mm S-head => 330 mm
+#   a1 : measured 41.5 mm
+#   a2 : measured 445.7 mm
+#   a3 : measured  39.9 mm
+#   d4 : J5 sits 115.8 mm ahead of the link_4_r part origin (forearm 440 mm)
+#   d6 : flange face is 80 mm from the B-axis (flange part nests in link_5_b)
+#
+# Home pose (all joints = 0): L-arm vertical, forearm horizontal pointing +X.
+d1: 0.330   # floor -> J2 (L-axis) height
+a1: 0.040   # J1 (S) axis -> J2 (L) axis, horizontal offset
+a2: 0.445   # J2 (L) -> J3 (U), lower-arm length
+a3: 0.040   # J3 (U) -> J4 (R) axis, vertical offset
+d4: 0.440   # J3 (U) -> J5 (B), along the forearm
+d6: 0.080   # J5 (B) -> tool flange face

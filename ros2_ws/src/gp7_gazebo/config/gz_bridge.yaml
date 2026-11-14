@@ -1,0 +1,14 @@
+# ros_gz_bridge topics (Gazebo -> ROS only, no control yet).
+- ros_topic_name: /clock
+  gz_topic_name: /clock
+  ros_type_name: rosgraph_msgs/msg/Clock
+  gz_type_name: gz.msgs.Clock
+  direction: GZ_TO_ROS
+
+# Joint angles measured in Gazebo (JointStatePublisher system) -> /joint_states,
+# so robot_state_publisher / RViz show exactly what the simulator is doing.
+- ros_topic_name: /joint_states
+  gz_topic_name: /world/gp7_world/model/gp7/joint_state
+  ros_type_name: sensor_msgs/msg/JointState
+  gz_type_name: gz.msgs.Model
+  direction: GZ_TO_ROS

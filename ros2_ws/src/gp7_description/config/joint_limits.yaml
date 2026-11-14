@@ -1,0 +1,14 @@
+# YASKAWA GP7 joint limits.
+# Position range and maximum speed: GP7 datasheet (DS-866, Jan 2021), page 2.
+# Effort [N·m]: NOT in the datasheet - these are simulation values large
+# enough to hold the arm + 7 kg payload against gravity in Gazebo.
+#
+# Axis directions follow the ROS-Industrial motoman convention, so that the
+# datasheet's asymmetric ranges map correctly:
+#   L positive = lower arm tilts forward,  U positive = forearm tilts up.
+joint_1_s: {lower_deg: -170.0, upper_deg: 170.0, velocity_deg_s: 375.0,  effort: 500.0}
+joint_2_l: {lower_deg:  -65.0, upper_deg: 145.0, velocity_deg_s: 315.0,  effort: 500.0}
+joint_3_u: {lower_deg:  -70.0, upper_deg: 190.0, velocity_deg_s: 410.0,  effort: 250.0}
+joint_4_r: {lower_deg: -190.0, upper_deg: 190.0, velocity_deg_s: 550.0,  effort: 50.0}
+joint_5_b: {lower_deg: -135.0, upper_deg: 135.0, velocity_deg_s: 550.0,  effort: 50.0}
+joint_6_t: {lower_deg: -360.0, upper_deg: 360.0, velocity_deg_s: 1000.0, effort: 25.0}
