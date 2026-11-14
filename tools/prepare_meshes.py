@@ -45,7 +45,7 @@ def cols(ex, ey, ez):
     return R
 
 
-# link name -> (source STL, R, t).  Measured with tools/measure_joint_axes.py.
+# link name -> (source STL, R, t).  Axis positions from tools/measure_joint_axes.py.
 LINKS = {
     # base: mesh is Y-up, origin on floor under S-axis; cable connector box is
     # at mesh +X = the back of the robot, so robot-forward is mesh -X.
@@ -54,14 +54,14 @@ LINKS = {
     # 41.5 mm towards mesh +Z, so robot-forward is mesh -Z.
     'link_1_s': ('link1_s.stl', cols([0, -1, 0], [0, 0, 1], [-1, 0, 0]), [K['a1'], 0, 0]),
     # Lower arm: mesh origin on L-axis (mesh Y), arm hangs along mesh -Z.
-    # Fitted L-axis centre is (x=-1.1 mm, z=+2.5 mm) -> shift it onto the origin.
+    # The L-axis passes exactly through the mesh origin (concentric-feature fit).
     # NOTE: mesh +X (the side the arm bows towards) is mapped to robot-forward.
-    'link_2_l': ('link2_L.stl', cols([1, 0, 0], [0, -1, 0], [0, 0, -1]), [0.0011, 0, 0.0025]),
+    'link_2_l': ('link2_L.stl', cols([1, 0, 0], [0, -1, 0], [0, 0, -1]), [0, 0, 0]),
     # Upper-arm casing: already Z-up, X-forward, origin on U-axis (mesh Y).
     'link_3_u': ('link3_U.stl', cols([1, 0, 0], [0, 1, 0], [0, 0, 1]), [0, 0, 0]),
-    # Forearm: mesh X along R-axis, B-axis is mesh Z and sits 115.8 mm ahead
-    # of the mesh origin -> mesh origin is (d4 - 0.1158) ahead of link_4_r.
-    'link_4_r': ('link4_R.stl', cols([1, 0, 0], [0, 0, 1], [0, -1, 0]), [K['d4'] - 0.1158, 0, 0]),
+    # Forearm: mesh X along R-axis, B-axis is mesh Z and its bores sit 119.3 mm
+    # ahead of the mesh origin -> mesh origin is (d4 - 0.1193) ahead of link_4_r.
+    'link_4_r': ('link4_R.stl', cols([1, 0, 0], [0, 0, 1], [0, -1, 0]), [K['d4'] - 0.1193, 0, 0]),
     # Wrist: origin on B-axis (mesh Z), T-axis/flange along mesh +Y.
     'link_5_b': ('link5_B.stl', cols([0, 0, 1], [1, 0, 0], [0, 1, 0]), [0, 0, 0]),
     # Flange: axis mesh X, outer face (with the Ø12 pin hole) at mesh x=+15 mm.
