@@ -1,5 +1,5 @@
 # YASKAWA GP7 kinematics - Denavit-Hartenberg table (standard / distal DH,
-# EN3563 lecture convention). SINGLE SOURCE OF TRUTH: the URDF
+# classic convention). SINGLE SOURCE OF TRUTH: the URDF
 # (urdf/gp7_macro.xacro), tools/*.py and the future kinematics code read it.
 #
 #   a_i     : distance between Z_{i-1} and Z_i, measured along X_i
