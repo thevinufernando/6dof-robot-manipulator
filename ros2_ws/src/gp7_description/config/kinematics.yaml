@@ -1,22 +1,28 @@
-# YASKAWA GP7 nominal kinematic dimensions [m].
+# YASKAWA GP7 kinematics - Denavit-Hartenberg table (standard / distal DH,
+# EN3563 lecture convention). SINGLE SOURCE OF TRUTH: the URDF
+# (urdf/gp7_macro.xacro), tools/*.py and the future kinematics code read it.
 #
-# Single source of truth: read by the URDF (urdf/gp7_macro.xacro) and by
-# tools/prepare_meshes.py. Later, the D-H / IK code should read it too.
+#   a_i     : distance between Z_{i-1} and Z_i, measured along X_i
+#   alpha_i : angle between Z_{i-1} and Z_i, measured about X_i
+#   d_i     : distance from O_{i-1} to the intersection of X_i and Z_i, along Z_{i-1}
+#   theta_i : angle between X_{i-1} and X_i, measured about Z_{i-1}
 #
-# Values are GP7 nominal dimensions, confirmed on the STL meshes by locating
-# each joint axis from its concentric holes/bores (tools/measure_joint_axes.py):
-#   d1 : base housing top 198 mm + S-head bottom 132 mm below L-axis => 330 mm
-#   a1 : measured 40.0 mm
-#   a2 : measured 445.0 mm
-#   a3 : measured 40.0 mm
-#   d4 : nominal 440 mm (J5 bores sit 119.3 mm ahead of the forearm part origin;
-#        forearm tube then sits 1.5 mm clear of the U-casing lip)
-#   d6 : flange face is 80 mm from the B-axis (flange part nests in link_5_b)
+#   A_i = Rz(theta_i) . Tz(d_i) . Tx(a_i) . Rx(alpha_i)        T_0^6 = A_1 A_2 ... A_6
+#   theta_i = theta_offset_i + q_i      (q_i = joint variable, the "*" in the table)
 #
-# Home pose (all joints = 0): L-arm vertical, forearm horizontal pointing +X.
-d1: 0.330   # floor -> J2 (L-axis) height
-a1: 0.040   # J1 (S) axis -> J2 (L) axis, horizontal offset
-a2: 0.445   # J2 (L) -> J3 (U), lower-arm length
-a3: 0.040   # J3 (U) -> J4 (R) axis, vertical offset
-d4: 0.440   # J3 (U) -> J5 (B), along the forearm
-d6: 0.080   # J5 (B) -> tool flange face
+# Frame assignment: docs/dh_table/dh_table_and_coordinate_frame_assignment.png
+# Dimensions: GP7 datasheet docs/datasheets/motoman_GP7.pdf (330/40/445/40/440/80 mm),
+# confirmed on the STL meshes with tools/measure_joint_axes.py.
+#
+# Home pose (all q_i = 0): L-arm vertical, forearm horizontal along +X0,
+# flange centre at (0.560, 0, 0.815) m.
+#
+# Joint i rotates about Z_{i-1}; positive q_i is right-handed about Z_{i-1}.
+# Units: metres, degrees.
+dh:
+  - {link: link_1_s, joint: joint_1_s, a: 0.040, alpha_deg:  90.0, d: 0.330, theta_offset_deg:  0.0}
+  - {link: link_2_l, joint: joint_2_l, a: 0.445, alpha_deg:   0.0, d: 0.000, theta_offset_deg: 90.0}
+  - {link: link_3_u, joint: joint_3_u, a: 0.040, alpha_deg:  90.0, d: 0.000, theta_offset_deg:  0.0}
+  - {link: link_4_r, joint: joint_4_r, a: 0.000, alpha_deg: -90.0, d: 0.440, theta_offset_deg:  0.0}
+  - {link: link_5_b, joint: joint_5_b, a: 0.000, alpha_deg:  90.0, d: 0.000, theta_offset_deg:  0.0}
+  - {link: link_6_t, joint: joint_6_t, a: 0.000, alpha_deg:   0.0, d: 0.080, theta_offset_deg:  0.0}

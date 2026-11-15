@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Convert the raw SolidWorks STL exports into URDF-ready meshes.
+"""Convert the raw SolidWorks STL exports into URDF-ready meshes in the DH frames.
 
-For each of the 7 links this script:
-  1. re-expresses the mesh in its URDF link frame (p_link = R @ p_mesh + t),
-     so the URDF visual/collision origins are all identity;
-  2. writes a convex-hull collision mesh (a few hundred triangles instead of
-     ~50k, which keeps Gazebo's physics fast);
-  3. computes volume, centre of mass and inertia tensor of the closed mesh
-     and scales density so the whole arm weighs 34 kg (GP7 datasheet).
+Two steps per link:
+  1. place the raw part where it sits on the assembled robot at the HOME pose,
+     in base-frame {0} coordinates:   p_0 = R @ p_mesh + t
+     (R, t come from the joint-axis measurements of tools/measure_joint_axes.py;
+     t is anchored to the DH frame origins O_i so it follows kinematics.yaml);
+  2. express it in its own DH frame {i}:   p_i = (T_0^i at home)^-1 . p_0
+so every URDF link frame IS the DH frame and visual/collision origins are identity.
 
-URDF link frame convention (all frames parallel to base_link at home pose,
-X forward, Z up):
-  base_link : on the floor, under the S-axis
-  link_1_s  : on the S-axis, at the L-axis height (d1)
-  link_2_l  : on the L-axis
-  link_3_u  : on the U-axis
-  link_4_r  : on the R-axis, directly above the U-axis (a3)
-  link_5_b  : on the B-axis (d4 ahead of link_4_r)
-  link_6_t  : centre of the tool flange face (d6 ahead of link_5_b)
+It also writes convex-hull collision meshes and computes volume, centre of mass
+and inertia per link (uniform density scaled to the GP7 datasheet weight).
 
 Outputs (inside ros2_ws/src/gp7_description):
   meshes/visual/<link>.stl, meshes/collision/<link>.stl, config/inertials.yaml
@@ -28,44 +21,48 @@ import os
 import numpy as np
 import yaml
 from scipy.spatial import ConvexHull
+from dh import fk_frames, load_dh
 from stl_utils import load_stl, save_stl
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 STL_DIR = os.path.join(ROOT, '3d_designs', 'STL_files')
 PKG = os.path.join(ROOT, 'ros2_ws', 'src', 'gp7_description')
-TOTAL_MASS = 34.0  # kg, GP7 datasheet
+TOTAL_MASS = 37.0  # kg, GP7 datasheet (docs/datasheets/motoman_GP7.pdf)
 
-K = yaml.safe_load(open(os.path.join(PKG, 'config', 'kinematics.yaml')))
+DH = load_dh()
+T_HOME = fk_frames([0.0] * len(DH), DH)          # T_0^i at home, i = 0..6
+O = [T[:3, 3] for T in T_HOME]                   # DH origins O_0..O_6 in {0}
+X0 = np.array([1.0, 0.0, 0.0])                   # robot forward at home
 
 
 def cols(ex, ey, ez):
-    """Rotation whose columns are where mesh x, y, z axes point in the link frame."""
+    """Rotation whose columns are where mesh x, y, z axes point in base frame {0} at home."""
     R = np.array([ex, ey, ez], dtype=float).T
     assert np.allclose(R @ R.T, np.eye(3)) and np.isclose(np.linalg.det(R), 1.0)
     return R
 
 
-# link name -> (source STL, R, t).  Axis positions from tools/measure_joint_axes.py.
+# link -> (DH frame index, source STL, R, t): raw part pose in {0} at the home pose.
 LINKS = {
-    # base: mesh is Y-up, origin on floor under S-axis; cable connector box is
-    # at mesh +X = the back of the robot, so robot-forward is mesh -X.
-    'base_link': ('base_link.stl', cols([-1, 0, 0], [0, 0, 1], [0, 1, 0]), [0, 0, 0]),
-    # S-head: mesh origin is ON the L-axis (mesh X); mesh Y is up; the S-axis is
-    # 41.5 mm towards mesh +Z, so robot-forward is mesh -Z.
-    'link_1_s': ('link1_s.stl', cols([0, -1, 0], [0, 0, 1], [-1, 0, 0]), [K['a1'], 0, 0]),
-    # Lower arm: mesh origin on L-axis (mesh Y), arm hangs along mesh -Z.
-    # The L-axis passes exactly through the mesh origin (concentric-feature fit).
-    # NOTE: mesh +X (the side the arm bows towards) is mapped to robot-forward.
-    'link_2_l': ('link2_L.stl', cols([1, 0, 0], [0, -1, 0], [0, 0, -1]), [0, 0, 0]),
-    # Upper-arm casing: already Z-up, X-forward, origin on U-axis (mesh Y).
-    'link_3_u': ('link3_U.stl', cols([1, 0, 0], [0, 1, 0], [0, 0, 1]), [0, 0, 0]),
-    # Forearm: mesh X along R-axis, B-axis is mesh Z and its bores sit 119.3 mm
-    # ahead of the mesh origin -> mesh origin is (d4 - 0.1193) ahead of link_4_r.
-    'link_4_r': ('link4_R.stl', cols([1, 0, 0], [0, 0, 1], [0, -1, 0]), [K['d4'] - 0.1193, 0, 0]),
-    # Wrist: origin on B-axis (mesh Z), T-axis/flange along mesh +Y.
-    'link_5_b': ('link5_B.stl', cols([0, 0, 1], [1, 0, 0], [0, 1, 0]), [0, 0, 0]),
-    # Flange: axis mesh X, outer face (with the Ø12 pin hole) at mesh x=+15 mm.
-    'link_6_t': ('link6_T.stl', cols([1, 0, 0], [0, 1, 0], [0, 0, 1]), [-0.015, 0, 0]),
+    # Base: mesh is Y-up, origin on the floor under the S-axis; the cable
+    # connector box is at mesh +X = back of the robot, so forward is mesh -X.
+    'base_link': (0, 'base_link.stl', cols([-1, 0, 0], [0, 0, 1], [0, 1, 0]), O[0]),
+    # S-head: mesh origin ON the L-axis at the centre plane (= O1); mesh Y up;
+    # S-axis is 40 mm towards mesh +Z, so forward is mesh -Z.
+    'link_1_s': (1, 'link1_s.stl', cols([0, -1, 0], [0, 0, 1], [-1, 0, 0]), O[1]),
+    # Lower arm: mesh origin on the L-axis (= O1), arm hangs along mesh -Z.
+    # It bows towards mesh +X, which is the BACK of the robot (see the GP7 photo).
+    'link_2_l': (2, 'link2_L.stl', cols([-1, 0, 0], [0, 1, 0], [0, 0, -1]), O[1]),
+    # U-casing: already Z-up, X-forward, origin on the U-axis (= O2).
+    'link_3_u': (3, 'link3_U.stl', cols([1, 0, 0], [0, 1, 0], [0, 0, 1]), O[2]),
+    # Forearm: mesh X along the R-axis; B-axis bores (mesh Z) sit 119.3 mm ahead
+    # of the mesh origin -> mesh origin is 119.3 mm behind the wrist centre O4.
+    'link_4_r': (4, 'link4_R.stl', cols([1, 0, 0], [0, 0, 1], [0, -1, 0]), O[4] - 0.1193 * X0),
+    # Wrist: origin on the B-axis (= O5, the wrist centre), T-axis along mesh +Y.
+    'link_5_b': (5, 'link5_B.stl', cols([0, 0, 1], [1, 0, 0], [0, 1, 0]), O[5]),
+    # Flange: axis mesh X, outer face (with the Ø12 pin hole) at mesh x = +15 mm,
+    # i.e. the face centre is O6.
+    'link_6_t': (6, 'link6_T.stl', cols([1, 0, 0], [0, 1, 0], [0, 0, 1]), O[6] - 0.015 * X0),
 }
 
 
@@ -104,8 +101,10 @@ def main():
     os.makedirs(os.path.join(PKG, 'meshes', 'visual'), exist_ok=True)
     os.makedirs(os.path.join(PKG, 'meshes', 'collision'), exist_ok=True)
     props = {}
-    for link, (src, R, t) in LINKS.items():
-        tris = load_stl(os.path.join(STL_DIR, src)) @ R.T + np.asarray(t, float)
+    for link, (i, src, R, t) in LINKS.items():
+        p0 = load_stl(os.path.join(STL_DIR, src)) @ R.T + np.asarray(t, float)  # home pose, {0}
+        Ti = T_HOME[i]
+        tris = (p0 - Ti[:3, 3]) @ Ti[:3, :3]                                       # into DH frame {i}
         save_stl(os.path.join(PKG, 'meshes', 'visual', f'{link}.stl'), tris)
         hull = convex_hull_tris(tris)
         save_stl(os.path.join(PKG, 'meshes', 'collision', f'{link}.stl'), hull)
@@ -128,7 +127,7 @@ def main():
     with open(os.path.join(PKG, 'config', 'inertials.yaml'), 'w') as f:
         f.write('# GENERATED by tools/prepare_meshes.py - do not edit by hand.\n'
                 f'# Uniform density ({density:.0f} kg/m^3) scaled so the arm weighs {TOTAL_MASS} kg.\n'
-                '# com [m] in the link frame; inertia [kg m^2] about the COM, link-frame axes.\n')
+                '# com [m] in the link (DH) frame; inertia [kg m^2] about the COM, DH-frame axes.\n')
         yaml.safe_dump(out, f, sort_keys=False, default_flow_style=None)
     for link, p in out.items():
         print(f'{link:10s} mass {p["mass"]:6.2f} kg  com {p["com"]}')

@@ -70,6 +70,8 @@ def forward_kinematics(urdf_root, q):
 
 
 def mesh_path(uri):
+    if uri.startswith('file://'):
+        return uri[len('file://'):]
     return os.path.join(PKG_ROOT, uri.replace('package://', ''))
 
 
