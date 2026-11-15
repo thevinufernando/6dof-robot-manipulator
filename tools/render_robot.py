@@ -63,6 +63,9 @@ def forward_kinematics(urdf_root, q):
             if j.get('type') in ('revolute', 'continuous'):
                 axis = [float(v) for v in j.find('axis').get('xyz').split()]
                 Tj = Tj @ homog(axis_angle(axis, q.get(j.get('name'), 0.0)), [0, 0, 0])
+            elif j.get('type') == 'prismatic':
+                axis = np.array([float(v) for v in j.find('axis').get('xyz').split()])
+                Tj = Tj @ homog(np.eye(3), axis * q.get(j.get('name'), 0.0))
             child = j.find('child').get('link')
             T[child] = T[parent] @ Tj
             stack.append(child)
@@ -75,16 +78,51 @@ def mesh_path(uri):
     return os.path.join(PKG_ROOT, uri.replace('package://', ''))
 
 
+def primitive_tris(geom):
+    """Triangles for a URDF <box> or <cylinder> (in its own frame), else None."""
+    b = geom.find('box')
+    if b is not None:
+        hx, hy, hz = [float(v) / 2 for v in b.get('size').split()]
+        c = np.array([[sx * hx, sy * hy, sz * hz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)])
+        faces = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+        return np.array([[c[f[0]], c[f[i]], c[f[i + 1]]] for f in faces for i in (1, 2)])
+    cy = geom.find('cylinder')
+    if cy is not None:
+        r, h = float(cy.get('radius')), float(cy.get('length'))
+        t = np.linspace(0, 2 * np.pi, 33)
+        ring = lambda z: np.c_[r * np.cos(t), r * np.sin(t), np.full_like(t, z)]
+        lo, hi = ring(-h / 2), ring(h / 2)
+        tris = []
+        for i in range(32):
+            tris += [[lo[i], lo[i + 1], hi[i + 1]], [lo[i], hi[i + 1], hi[i]],
+                     [[0, 0, -h / 2], lo[i + 1], lo[i]], [[0, 0, h / 2], hi[i], hi[i + 1]]]
+        return np.array(tris, dtype=float)
+    return None
+
+
 def render(urdf_file, out_png, poses_deg):
     root = ET.parse(urdf_file).getroot()
     joint_names = [j.get('name') for j in root.findall('joint') if j.get('type') == 'revolute']
     meshes = {}
     for link in root.findall('link'):
-        m = link.find('visual/geometry/mesh')
-        if m is not None:
-            col = link.find('visual/material/color')
-            rgba = [float(v) for v in col.get('rgba').split()] if col is not None else [.5, .5, .5, 1]
-            meshes[link.get('name')] = (load_stl(mesh_path(m.get('filename'))), rgba[:3])
+        parts = []
+        for vis in link.findall('visual'):
+            geom = vis.find('geometry')
+            col = vis.find('material/color')
+            rgb = [float(v) for v in col.get('rgba').split()][:3] if col is not None else [.5, .5, .5]
+            m = geom.find('mesh')
+            tris = load_stl(mesh_path(m.get('filename'))) if m is not None else primitive_tris(geom)
+            if tris is None:
+                continue
+            o = vis.find('origin')
+            if o is not None:
+                xyz = [float(v) for v in o.get('xyz', '0 0 0').split()]
+                rpy = [float(v) for v in o.get('rpy', '0 0 0').split()]
+                tris = tris @ rpy_matrix(*rpy).T + np.array(xyz)
+            parts.append((tris, rgb))
+        if parts:
+            meshes[link.get('name')] = (np.concatenate([p[0] for p in parts]),
+                                        np.concatenate([np.tile(p[1], (len(p[0]), 1)) for p in parts]))
 
     # (title, rotation world->view) ; view x = screen right, y = screen up, z = towards viewer
     views = [('side (from -Y)', np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)),
@@ -103,7 +141,7 @@ def render(urdf_file, out_png, poses_deg):
         world_tris, colours = [], []
         for name, (tris, rgb) in meshes.items():
             world_tris.append(tris @ T[name][:3, :3].T + T[name][:3, 3])
-            colours.append(np.tile(rgb, (len(tris), 1)))
+            colours.append(rgb)
         W, C = np.concatenate(world_tris), np.concatenate(colours)
         for c, (title, V) in enumerate(views):
             ax = axs[r, c]

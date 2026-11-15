@@ -1,26 +1,65 @@
-"""Start Gazebo Harmonic with the GP7 bolted to the world origin.
+"""Start Gazebo Harmonic with the GP7 (+ gripper) at the world origin, Box A and Box B.
 
-    ros2 launch gp7_gazebo gazebo.launch.py            # Gazebo GUI
-    ros2 launch gp7_gazebo gazebo.launch.py rviz:=true # + RViz (joint states from Gazebo)
-    ros2 launch gp7_gazebo gazebo.launch.py headless:=true
+    ros2 launch gp7_gazebo gazebo.launch.py                          # Gazebo GUI
+    ros2 launch gp7_gazebo gazebo.launch.py rviz:=true               # + RViz
+    ros2 launch gp7_gazebo gazebo.launch.py headless:=true           # server only
+    ros2 launch gp7_gazebo gazebo.launch.py box_b_x:=0.5 box_b_y:=-0.4 box_b_yaw:=20
+    ros2 launch gp7_gazebo gazebo.launch.py box_b_random:=true [box_b_seed:=7]
+    ros2 launch gp7_gazebo gazebo.launch.py box_a_x:=0.6 box_a_y:=0.4   # move Box A
+
+While running, move Box B without restarting:
+    ros2 run gp7_gazebo move_box_b.py 0.55 -0.30 [yaw_deg]  |  --random
 
 Pipeline:
   xacro -> robot_description -> robot_state_publisher (topic /robot_description)
-  ros_gz_sim create  : reads /robot_description and spawns the model "gp7"
-  ros_gz_bridge      : /clock and /joint_states from Gazebo to ROS
+  ros_gz_sim create  : spawns "gp7" from /robot_description, "box_a"/"box_b" from SDF
+  ros_gz_bridge      : /clock, /joint_states, /box_b/pose  (Gazebo -> ROS)
+                       /gp7/gripper/cmd_pos                (ROS -> Gazebo)
 """
+import math
 import os
+import random
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument,
-                            IncludeLaunchDescription)
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (Command, LaunchConfiguration,
                                   PythonExpression)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+# Same reachable pick region as scripts/move_box_b.py
+R_MIN, R_MAX, ANGLE_MAX_DEG = 0.40, 0.75, 150.0
+
+
+def spawn_boxes(context):
+    gz_pkg = get_package_share_directory('gp7_gazebo')
+    cfg = {k: LaunchConfiguration(k).perform(context) for k in
+           ('box_a_x', 'box_a_y', 'box_b_x', 'box_b_y', 'box_b_yaw', 'box_b_random', 'box_b_seed')}
+
+    bx, by, byaw = float(cfg['box_b_x']), float(cfg['box_b_y']), float(cfg['box_b_yaw'])
+    if cfg['box_b_random'].lower() == 'true':
+        rng = random.Random(int(cfg['box_b_seed']) if cfg['box_b_seed'] else None)
+        r = math.sqrt(rng.uniform(R_MIN ** 2, R_MAX ** 2))
+        a = math.radians(rng.uniform(-ANGLE_MAX_DEG, ANGLE_MAX_DEG))
+        bx, by = r * math.cos(a), r * math.sin(a)
+
+    def create(name, x, y, yaw_deg=0.0):
+        return Node(package='ros_gz_sim', executable='create', output='screen',
+                    arguments=['-file', os.path.join(gz_pkg, 'models', name, 'model.sdf'),
+                               '-name', name, '-x', f'{x}', '-y', f'{y}', '-z', '0',
+                               '-Y', f'{math.radians(yaw_deg)}'])
+
+    return [
+        LogInfo(msg=f"Box A at ({cfg['box_a_x']}, {cfg['box_a_y']}, 0);  "
+                    f"Box B at ({bx:.3f}, {by:.3f}, 0) yaw {byaw:.1f} deg "
+                    f"(r = {math.hypot(bx, by):.3f} m)"),
+        create('box_a', float(cfg['box_a_x']), float(cfg['box_a_y'])),
+        create('box_b', bx, by, byaw),
+    ]
 
 
 def generate_launch_description():
@@ -33,7 +72,7 @@ def generate_launch_description():
 
     robot_description = ParameterValue(
         Command(['xacro ', os.path.join(desc_pkg, 'urdf', 'gp7.urdf.xacro'),
-                 ' gazebo:=true gz_hold:=true']),
+                 ' gazebo:=true gz_hold:=true gripper:=true']),
         value_type=str)
 
     # Gazebo resolves package://gp7_description/... by searching this path.
@@ -55,7 +94,7 @@ def generate_launch_description():
         parameters=[{'robot_description': robot_description, 'use_sim_time': True}],
         output='screen')
 
-    spawn = Node(
+    spawn_robot = Node(
         package='ros_gz_sim', executable='create', output='screen',
         arguments=['-topic', 'robot_description', '-name', 'gp7',
                    '-x', '0', '-y', '0', '-z', '0'])
@@ -74,10 +113,19 @@ def generate_launch_description():
         DeclareLaunchArgument('world', default_value=os.path.join(gz_pkg, 'worlds', 'gp7_world.sdf')),
         DeclareLaunchArgument('headless', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('box_a_x', default_value='1.0', description='Box A centre x [m] (task: 1.0)'),
+        DeclareLaunchArgument('box_a_y', default_value='1.0', description='Box A centre y [m] (task: 1.0)'),
+        DeclareLaunchArgument('box_b_x', default_value='0.55', description='Box B centre x [m]'),
+        DeclareLaunchArgument('box_b_y', default_value='-0.30', description='Box B centre y [m]'),
+        DeclareLaunchArgument('box_b_yaw', default_value='0.0', description='Box B yaw [deg]'),
+        DeclareLaunchArgument('box_b_random', default_value='false',
+                              description='true: random reachable Box B location (overrides x/y)'),
+        DeclareLaunchArgument('box_b_seed', default_value='', description='seed for box_b_random'),
         gz_resource_path,
         gz_sim,
         robot_state_publisher,
-        spawn,
+        spawn_robot,
+        OpaqueFunction(function=spawn_boxes),
         bridge,
         rviz_node,
     ])

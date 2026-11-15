@@ -16,6 +16,14 @@
 
   These hold controllers will be replaced by gz_ros2_control in the control
   step (set gz_hold:=false then).
+
+  Gripper: each finger has a force-mode (PID) JointPositionController; both
+  listen to the same topic, so one number moves both fingers symmetrically:
+      gz topic -t /gp7/gripper/cmd_pos -m gz.msgs.Double -p 'data: 0.0425'   # close
+      gz topic -t /gp7/gripper/cmd_pos -m gz.msgs.Double -p 'data: 0.0'      # open
+  (also bridged from ROS: ros2 topic pub /gp7/gripper/cmd_pos std_msgs/msg/Float64 ...)
+  When a finger is blocked by an object its PID saturates at the effort limit
+  (config/gripper.yaml), which is the grip force.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -34,7 +42,31 @@
     </gazebo>
   </xacro:macro>
 
-  <xacro:macro name="gp7_gazebo" params="prefix:='' gz_hold:=true">
+  <!-- Drive one gripper finger. Both fingers' controllers listen to the SAME
+       topic, so one number moves both symmetrically.
+       FORCE (PID) mode, not velocity mode: with all six arm joints already
+       velocity-controlled, velocity-commanded fingers were not tracked reliably
+       (one finger stuck, depending on the arm orientation). A single controller
+       with two <joint_name> tags is not used either: it computes its command
+       from the first joint's error only. -->
+  <xacro:macro name="gz_finger" params="prefix side">
+    <gazebo>
+      <plugin filename="gz-sim-joint-position-controller-system"
+              name="gz::sim::systems::JointPositionController">
+        <joint_name>${prefix}gripper_${side}_finger_joint</joint_name>
+        <topic>/gp7/${prefix}gripper/cmd_pos</topic>
+        <use_velocity_commands>false</use_velocity_commands>
+        <p_gain>${grp['control']['p_gain']}</p_gain>
+        <i_gain>0.0</i_gain>
+        <d_gain>${grp['control']['d_gain']}</d_gain>
+        <cmd_max>${grp['effort']}</cmd_max>
+        <cmd_min>${-grp['effort']}</cmd_min>
+        <initial_position>0.0</initial_position>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="gp7_gazebo" params="prefix:='' gz_hold:=true gripper:=true">
     <gazebo>
       <plugin filename="gz-sim-joint-state-publisher-system"
               name="gz::sim::systems::JointStatePublisher"/>
@@ -47,6 +79,11 @@
       <xacro:gz_hold_joint prefix="${prefix}" name="joint_4_r"/>
       <xacro:gz_hold_joint prefix="${prefix}" name="joint_5_b"/>
       <xacro:gz_hold_joint prefix="${prefix}" name="joint_6_t"/>
+    </xacro:if>
+
+    <xacro:if value="${gripper}">
+      <xacro:gz_finger prefix="${prefix}" side="left"/>
+      <xacro:gz_finger prefix="${prefix}" side="right"/>
     </xacro:if>
     <!-- Note: self-collision is off by default in Gazebo, which we want here
          because neighbouring convex-hull collision meshes overlap. -->

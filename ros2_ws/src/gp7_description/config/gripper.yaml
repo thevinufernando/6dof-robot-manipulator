@@ -1,0 +1,33 @@
+# Simplified 2-finger parallel gripper modelled on the Robotiq 2F-85.
+# (Real 2F-85: 85 mm stroke, 0.925 kg, 20-150 mm/s, 20-235 N grip force.
+#  Its fingertips stay parallel through a 4-bar linkage; we model that with two
+#  prismatic fingers, which gives the same parallel-jaw behaviour.)
+#
+# Frames (all expressed in the flange frame tool0 = DH frame {6}: Z out of the
+# flange, fingers close along Y):
+#   gripper_base : on the flange face, same orientation as tool0
+#   gripper_tcp  : tool centre point, between the finger pads, tcp_z along Z
+#                  -> use this as the IK target frame (T_6^tcp = Tz(tcp_z))
+# Finger joint q (both fingers, metres): 0 = fully open (85 mm gap),
+# stroke = fully closed (pads touch). Each finger moves q towards the centre.
+# Units: metres, kilograms, newtons.
+
+coupling: {radius: 0.0375, length: 0.012}          # adapter plate on the GP7 flange
+body:     {x: 0.060, y: 0.120, z: 0.075, mass: 0.80}
+finger:
+  width_x: 0.022          # finger width (perpendicular to the closing direction)
+  thickness_y: 0.014      # finger plate thickness (closing direction)
+  length_z: 0.060         # finger length below the body
+  pad_thickness: 0.004    # rubber pad on the inner face
+  pad_length: 0.040       # pad height (at the finger tip)
+  mass: 0.10
+  friction_mu: 1.5        # pad friction coefficient in Gazebo
+stroke: 0.0425            # per finger (2 x 42.5 = 85 mm total)
+velocity: 0.15            # m/s per finger (2F-85 max closing speed) - URDF joint limit
+effort: 20.0              # N per finger = max grip force in sim (2F-85: 20-235 N)
+# Gazebo finger controller: FORCE (PID) mode, force = p*e + d*de/dt clamped to +/-effort.
+#  - free closing speed ~ effort / d_gain = 0.2 m/s (2F-85: 0.02-0.15 m/s)
+#  - grip force on an object = effort (the PID saturates while the finger is blocked)
+#  - stability at the 1 ms physics step needs d_gain * dt / finger_mass < 2 (here 1.0)
+control: {p_gain: 3000.0, d_gain: 100.0}
+tcp_z: 0.127              # flange -> TCP: coupling 12 + body 75 + finger 60 - pad 40/2 [mm]

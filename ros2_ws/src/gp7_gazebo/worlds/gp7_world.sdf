@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <!--
   Base world for the GP7 project: ground plane + sun, 1 kHz physics.
-  The robot is spawned into it by launch/gazebo.launch.py.
-  Box A / Box B for the pick-and-place task are added in a later step.
+  The robot, Box A and Box B are spawned into it by launch/gazebo.launch.py
+  (box positions are launch arguments; see models/box_a, models/box_b).
 -->
 <sdf version="1.9">
   <world name="gp7_world">

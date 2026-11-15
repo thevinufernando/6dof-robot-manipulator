@@ -5,13 +5,21 @@
   xacro args:
     gazebo   (true)  include Gazebo plugins (set false for RViz-only use)
     gz_hold  (true)  hold the pose with Gazebo JointPositionControllers
+    gripper  (true)  attach the 2-finger gripper to tool0
 -->
 <robot name="gp7" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="gazebo" default="true"/>
   <xacro:arg name="gz_hold" default="true"/>
+  <xacro:arg name="gripper" default="true"/>
 
   <xacro:include filename="$(find gp7_description)/urdf/gp7_macro.xacro"/>
   <xacro:gp7 prefix=""/>
+
+  <xacro:if value="$(arg gripper)">
+    <xacro:include filename="$(find gp7_description)/urdf/gripper_2f.xacro"/>
+    <!-- mimic only outside Gazebo (DART cannot simulate mimic constraints) -->
+    <xacro:gripper_2f prefix="" parent="tool0" mimic="${'$(arg gazebo)' != 'true'}"/>
+  </xacro:if>
 
   <!-- Bolt the robot base to the world origin (0, 0, 0), as the task requires. -->
   <link name="world"/>
@@ -23,6 +31,6 @@
 
   <xacro:if value="$(arg gazebo)">
     <xacro:include filename="$(find gp7_description)/urdf/gp7.gazebo.xacro"/>
-    <xacro:gp7_gazebo prefix="" gz_hold="$(arg gz_hold)"/>
+    <xacro:gp7_gazebo prefix="" gz_hold="$(arg gz_hold)" gripper="$(arg gripper)"/>
   </xacro:if>
 </robot>
