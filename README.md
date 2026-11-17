@@ -12,9 +12,10 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 - Two-finger gripper with a tool centre point (TCP) frame, controllable from ROS
 - Gazebo world with the robot at the origin, a target box (Box A) and a box to pick (Box B)
 - Box B can be placed anywhere at launch, at a random reachable spot, or moved while the simulation runs
+- Closed-form inverse kinematics for the gripper TCP (all 8 arm configurations, joint limits, singularities)
 - Joint limits and speeds taken from the GP7 datasheet
 
-**In progress:** inverse kinematics, trajectory planning with a smooth velocity profile, and the full pick-and-place sequence.
+**In progress:** trajectory planning with a smooth velocity profile, and the full pick-and-place sequence.
 
 ## Requirements
 
@@ -28,7 +29,7 @@ The robot model is built from the manufacturer's CAD files, and every link frame
                    ros-jazzy-joint-state-publisher-gui ros-jazzy-rviz2
   ```
 
-- Python 3 with `numpy`, `scipy`, `matplotlib` and `pyyaml` (only needed for the scripts in `tools/`)
+- Python 3 with `numpy` and `pyyaml` (plus `scipy` and `matplotlib` for the scripts in `tools/`)
 
 ## Project structure
 
@@ -38,6 +39,7 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 ├── docs/                  # GP7 datasheet and D-H frame assignment
 ├── ros2_ws/src/
 │   ├── gp7_description/   # URDF/xacro, meshes, D-H table, joint limits, gripper, RViz
+│   ├── gp7_kinematics/    # Forward and inverse kinematics (Python), IK command-line tool
 │   └── gp7_gazebo/        # Gazebo world, box models, launch file, ROS–Gazebo bridge
 └── tools/                 # Offline helpers: mesh preparation, D-H utilities, FK check
 ```
@@ -97,6 +99,13 @@ Read Box B's current pose:
 
 ```bash
 ros2 topic echo /box_b/pose
+```
+
+Solve the inverse kinematics for a gripper pose (position in metres; by default the gripper points straight down):
+
+```bash
+ros2 run gp7_kinematics ik_solver 0.55 -0.30 0.025            # top-down grasp
+ros2 run gp7_kinematics ik_solver 0.5 0.2 0.6 --rpy 150 20 40 # any orientation (deg)
 ```
 
 ## License
