@@ -2,8 +2,8 @@
 <!--
   Gazebo (gz-sim Harmonic) extras for the GP7.
 
-  Step 1 has no ROS 2 control yet, so without help the arm would simply
-  collapse under gravity. We use two plain Gazebo systems (no ROS involved):
+  Without a controller the arm would collapse under gravity. This mode uses
+  plain Gazebo systems (no ROS involved):
 
   * JointStatePublisher      - publishes joint angles on
                                /world/<world>/model/gp7/joint_state
@@ -14,8 +14,9 @@
                                Poke a joint from a terminal, e.g.
                                gz topic -t /gp7/joint_2_l/cmd_pos -m gz.msgs.Double -p 'data: 0.5'
 
-  These hold controllers will be replaced by gz_ros2_control in the control
-  step (set gz_hold:=false then).
+  This file is only used with sim_control:=gz_plugins (Gazebo-only control,
+  no ros2_control). The default, sim_control:=ros2_control, uses
+  gp7.ros2_control.xacro instead.
 
   Gripper: each finger has a force-mode (PID) JointPositionController; both
   listen to the same topic, so one number moves both fingers symmetrically:

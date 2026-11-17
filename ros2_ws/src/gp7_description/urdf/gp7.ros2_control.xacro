@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<!--
+  ros2_control hardware description for the GP7 in Gazebo (gz_ros2_control).
+
+  Arm joints      : command = velocity, state = position + velocity
+                    (arm_controller = joint_trajectory_controller sends
+                     q_dot_cmd = q_dot_ref + Kp (q_ref - q): velocity feed-forward
+                     from the planner + position feedback)
+  Both fingers    : command = EFFORT, state = position + velocity
+                    (gripper_controller = joint_trajectory_controller with PID
+                     gains: force = Kp (q_ref - q) + Kd (q_dot_ref - q_dot))
+                    Force control because velocity/position-servoed fingers
+                    were not tracked reliably while all six arm joints are
+                    velocity-servoed (DART): one finger stalled depending on the
+                    arm pose. Force-driven fingers work in every pose.
+
+  How Gazebo executes the interfaces (gz_ros2_control/GazeboSimSystem):
+    velocity -> JointVelocityCmd (ideal velocity servo, force-limited by the
+                URDF effort limit)
+    effort   -> JointForceCmd (force on the prismatic finger joint)
+
+  Controller parameters: passed in as controllers_file (gp7_gazebo/config/controllers.yaml).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="gp7_arm_joint_interfaces" params="prefix name">
+    <joint name="${prefix}${name}">
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="gp7_finger_interfaces" params="prefix side">
+    <joint name="${prefix}gripper_${side}_finger_joint">
+      <command_interface name="effort"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="gp7_ros2_control" params="prefix:='' controllers_file gripper:=true">
+    <ros2_control name="GP7System" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+
+      <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_1_s"/>
+      <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_2_l"/>
+      <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_3_u"/>
+      <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_4_r"/>
+      <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_5_b"/>
+      <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_6_t"/>
+
+      <xacro:if value="${gripper}">
+        <xacro:gp7_finger_interfaces prefix="${prefix}" side="left"/>
+        <xacro:gp7_finger_interfaces prefix="${prefix}" side="right"/>
+      </xacro:if>
+    </ros2_control>
+
+    <gazebo>
+      <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>${controllers_file}</parameters>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+</robot>

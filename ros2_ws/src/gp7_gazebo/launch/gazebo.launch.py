@@ -5,16 +5,16 @@
     ros2 launch gp7_gazebo gazebo.launch.py headless:=true           # server only
     ros2 launch gp7_gazebo gazebo.launch.py box_b_x:=0.5 box_b_y:=-0.4 box_b_yaw:=20
     ros2 launch gp7_gazebo gazebo.launch.py box_b_random:=true [box_b_seed:=7]
-    ros2 launch gp7_gazebo gazebo.launch.py box_a_x:=0.6 box_a_y:=0.4   # move Box A
+    ros2 launch gp7_gazebo gazebo.launch.py sim_control:=gz_plugins  # Gazebo-only joint control
 
 While running, move Box B without restarting:
     ros2 run gp7_gazebo move_box_b.py 0.55 -0.30 [yaw_deg]  |  --random
 
-Pipeline:
-  xacro -> robot_description -> robot_state_publisher (topic /robot_description)
-  ros_gz_sim create  : spawns "gp7" from /robot_description, "box_a"/"box_b" from SDF
-  ros_gz_bridge      : /clock, /joint_states, /box_b/pose  (Gazebo -> ROS)
-                       /gp7/gripper/cmd_pos                (ROS -> Gazebo)
+Pipeline (sim_control:=ros2_control, default):
+  xacro -> robot_description -> robot_state_publisher
+  ros_gz_sim create  : spawns "gp7" (gz_ros2_control loads controllers.yaml), "box_a", "box_b"
+  spawner            : joint_state_broadcaster, arm_controller, gripper_controller
+  ros_gz_bridge      : /clock, /box_b/pose  (Gazebo -> ROS)
 """
 import math
 import os
@@ -23,29 +23,40 @@ import random
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument,
-                            IncludeLaunchDescription, LogInfo, OpaqueFunction)
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction,
+                            RegisterEventHandler)
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (Command, LaunchConfiguration,
                                   PythonExpression)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-# Same reachable pick region as scripts/move_box_b.py
+# Same pick region as scripts/move_box_b.py: annulus around the S-axis, inside the
+# S-axis range, and not on (or right next to) Box A.
 R_MIN, R_MAX, ANGLE_MAX_DEG = 0.40, 0.75, 150.0
+BOX_A_HALF, BOX_A_MARGIN = 0.15, 0.10
+
+
+def random_box_b_xy(rng, ax, ay):
+    while True:
+        r = math.sqrt(rng.uniform(R_MIN ** 2, R_MAX ** 2))
+        a = math.radians(rng.uniform(-ANGLE_MAX_DEG, ANGLE_MAX_DEG))
+        x, y = r * math.cos(a), r * math.sin(a)
+        if max(abs(x - ax), abs(y - ay)) > BOX_A_HALF + BOX_A_MARGIN:
+            return x, y
 
 
 def spawn_boxes(context):
     gz_pkg = get_package_share_directory('gp7_gazebo')
     cfg = {k: LaunchConfiguration(k).perform(context) for k in
            ('box_a_x', 'box_a_y', 'box_b_x', 'box_b_y', 'box_b_yaw', 'box_b_random', 'box_b_seed')}
-
+    ax, ay = float(cfg['box_a_x']), float(cfg['box_a_y'])
     bx, by, byaw = float(cfg['box_b_x']), float(cfg['box_b_y']), float(cfg['box_b_yaw'])
     if cfg['box_b_random'].lower() == 'true':
         rng = random.Random(int(cfg['box_b_seed']) if cfg['box_b_seed'] else None)
-        r = math.sqrt(rng.uniform(R_MIN ** 2, R_MAX ** 2))
-        a = math.radians(rng.uniform(-ANGLE_MAX_DEG, ANGLE_MAX_DEG))
-        bx, by = r * math.cos(a), r * math.sin(a)
+        bx, by = random_box_b_xy(rng, ax, ay)
 
     def create(name, x, y, yaw_deg=0.0):
         return Node(package='ros_gz_sim', executable='create', output='screen',
@@ -54,10 +65,9 @@ def spawn_boxes(context):
                                '-Y', f'{math.radians(yaw_deg)}'])
 
     return [
-        LogInfo(msg=f"Box A at ({cfg['box_a_x']}, {cfg['box_a_y']}, 0);  "
-                    f"Box B at ({bx:.3f}, {by:.3f}, 0) yaw {byaw:.1f} deg "
-                    f"(r = {math.hypot(bx, by):.3f} m)"),
-        create('box_a', float(cfg['box_a_x']), float(cfg['box_a_y'])),
+        LogInfo(msg=f'Box A at ({ax}, {ay}, 0);  Box B at ({bx:.3f}, {by:.3f}, 0) '
+                    f'yaw {byaw:.1f} deg (r = {math.hypot(bx, by):.3f} m)'),
+        create('box_a', ax, ay),
         create('box_b', bx, by, byaw),
     ]
 
@@ -65,14 +75,19 @@ def spawn_boxes(context):
 def generate_launch_description():
     desc_pkg = get_package_share_directory('gp7_description')
     gz_pkg = get_package_share_directory('gp7_gazebo')
+    controllers_file = os.path.join(gz_pkg, 'config', 'controllers.yaml')
 
     world = LaunchConfiguration('world')
     headless = LaunchConfiguration('headless')
     rviz = LaunchConfiguration('rviz')
+    sim_control = LaunchConfiguration('sim_control')
+    use_r2c = PythonExpression(["'", sim_control, "' == 'ros2_control'"])
+    use_plugins = PythonExpression(["'", sim_control, "' == 'gz_plugins'"])
 
     robot_description = ParameterValue(
         Command(['xacro ', os.path.join(desc_pkg, 'urdf', 'gp7.urdf.xacro'),
-                 ' gazebo:=true gz_hold:=true gripper:=true']),
+                 ' gazebo:=true gripper:=true sim_control:=', sim_control,
+                 ' controllers_file:=', controllers_file]),
         value_type=str)
 
     # Gazebo resolves package://gp7_description/... by searching this path.
@@ -99,9 +114,24 @@ def generate_launch_description():
         arguments=['-topic', 'robot_description', '-name', 'gp7',
                    '-x', '0', '-y', '0', '-z', '0'])
 
+    # Start the controllers once the robot (and with it gz_ros2_control) exists.
+    spawn_controllers = Node(
+        package='controller_manager', executable='spawner', output='screen',
+        condition=IfCondition(use_r2c),
+        arguments=['joint_state_broadcaster', 'arm_controller', 'gripper_controller',
+                   '--controller-manager', '/controller_manager',
+                   '--controller-manager-timeout', '60'])
+    start_controllers = RegisterEventHandler(
+        OnProcessExit(target_action=spawn_robot, on_exit=[spawn_controllers]))
+
     bridge = Node(
-        package='ros_gz_bridge', executable='parameter_bridge', output='screen',
+        package='ros_gz_bridge', executable='parameter_bridge', name='gz_bridge', output='screen',
         parameters=[{'config_file': os.path.join(gz_pkg, 'config', 'gz_bridge.yaml'),
+                     'use_sim_time': True}])
+    bridge_plugins = Node(
+        package='ros_gz_bridge', executable='parameter_bridge', name='gz_bridge_plugins',
+        output='screen', condition=IfCondition(use_plugins),
+        parameters=[{'config_file': os.path.join(gz_pkg, 'config', 'gz_bridge_plugins.yaml'),
                      'use_sim_time': True}])
 
     rviz_node = Node(
@@ -113,8 +143,10 @@ def generate_launch_description():
         DeclareLaunchArgument('world', default_value=os.path.join(gz_pkg, 'worlds', 'gp7_world.sdf')),
         DeclareLaunchArgument('headless', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
-        DeclareLaunchArgument('box_a_x', default_value='1.0', description='Box A centre x [m] (task: 1.0)'),
-        DeclareLaunchArgument('box_a_y', default_value='1.0', description='Box A centre y [m] (task: 1.0)'),
+        DeclareLaunchArgument('sim_control', default_value='ros2_control',
+                              description='ros2_control | gz_plugins'),
+        DeclareLaunchArgument('box_a_x', default_value='0.5', description='Box A centre x [m]'),
+        DeclareLaunchArgument('box_a_y', default_value='0.5', description='Box A centre y [m]'),
         DeclareLaunchArgument('box_b_x', default_value='0.55', description='Box B centre x [m]'),
         DeclareLaunchArgument('box_b_y', default_value='-0.30', description='Box B centre y [m]'),
         DeclareLaunchArgument('box_b_yaw', default_value='0.0', description='Box B yaw [deg]'),
@@ -125,7 +157,9 @@ def generate_launch_description():
         gz_sim,
         robot_state_publisher,
         spawn_robot,
+        start_controllers,
         OpaqueFunction(function=spawn_boxes),
         bridge,
+        bridge_plugins,
         rviz_node,
     ])

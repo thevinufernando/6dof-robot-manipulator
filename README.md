@@ -9,7 +9,8 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 ## Features
 
 - GP7 robot description (URDF/xacro) with link frames that match the D-H table
-- Two-finger gripper with a tool centre point (TCP) frame, controllable from ROS
+- Two-finger gripper with a tool centre point (TCP) frame
+- ros2_control in Gazebo: velocity-controlled arm and force-controlled gripper, both driven through `joint_trajectory_controller`
 - Gazebo world with the robot at the origin, a target box (Box A) and a box to pick (Box B)
 - Box B can be placed anywhere at launch, at a random reachable spot, or moved while the simulation runs
 - Closed-form inverse kinematics for the gripper TCP (all 8 arm configurations, joint limits, singularities)
@@ -26,7 +27,8 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 
   ```bash
   sudo apt install ros-jazzy-ros-gz ros-jazzy-xacro ros-jazzy-robot-state-publisher \
-                   ros-jazzy-joint-state-publisher-gui ros-jazzy-rviz2
+                   ros-jazzy-joint-state-publisher-gui ros-jazzy-rviz2 \
+                   ros-jazzy-ros2-control ros-jazzy-ros2-controllers ros-jazzy-gz-ros2-control
   ```
 
 - Python 3 with `numpy` and `pyyaml` (plus `scipy` and `matplotlib` for the scripts in `tools/`)
@@ -58,7 +60,7 @@ source install/setup.bash
 
 ## Run
 
-**Gazebo simulation** (robot, gripper, Box A and Box B):
+**Gazebo simulation** (robot, gripper, Box A, Box B and the controllers):
 
 ```bash
 ros2 launch gp7_gazebo gazebo.launch.py
@@ -72,7 +74,8 @@ Useful launch arguments:
 | `headless` | `false` | Run Gazebo without the GUI |
 | `box_b_x`, `box_b_y`, `box_b_yaw` | `0.55`, `-0.30`, `0` | Box B position (m) and yaw (deg) |
 | `box_b_random` | `false` | Place Box B at a random reachable location |
-| `box_a_x`, `box_a_y` | `1.0`, `1.0` | Box A position (m) |
+| `box_a_x`, `box_a_y` | `0.5`, `0.5` | Box A position (m) |
+| `sim_control` | `ros2_control` | `ros2_control`, or `gz_plugins` for Gazebo-only joint control |
 
 **RViz only**, with a slider for each joint:
 
@@ -80,12 +83,32 @@ Useful launch arguments:
 ros2 launch gp7_description display.launch.py
 ```
 
+## Controllers
+
+| Controller | Type | Joints | Command interface |
+|---|---|---|---|
+| `joint_state_broadcaster` | `joint_state_broadcaster/JointStateBroadcaster` | all | – |
+| `arm_controller` | `joint_trajectory_controller/JointTrajectoryController` | `joint_1_s` … `joint_6_t` | velocity (feed-forward + position feedback) |
+| `gripper_controller` | `joint_trajectory_controller/JointTrajectoryController` | both finger joints | effort (PID) |
+
+The configuration is in `ros2_ws/src/gp7_gazebo/config/controllers.yaml`.
+
 ## Usage
 
-Open and close the gripper (`0.0` = open, `0.0425` = closed):
+Move the arm (joint angles in radians):
 
 ```bash
-ros2 topic pub --once -w 1 /gp7/gripper/cmd_pos std_msgs/msg/Float64 "{data: 0.0425}"
+ros2 action send_goal /arm_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory \
+  "{trajectory: {joint_names: [joint_1_s, joint_2_l, joint_3_u, joint_4_r, joint_5_b, joint_6_t],
+    points: [{positions: [0.3, -0.4, 0.2, 0.0, -0.6, 0.0], time_from_start: {sec: 3}}]}}"
+```
+
+Open and close the gripper (finger position per finger: `0.0` = open, `0.0425` = closed):
+
+```bash
+ros2 action send_goal /gripper_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory \
+  "{trajectory: {joint_names: [gripper_left_finger_joint, gripper_right_finger_joint],
+    points: [{positions: [0.03, 0.03], time_from_start: {sec: 1}}]}}"
 ```
 
 Move Box B while the simulation is running:

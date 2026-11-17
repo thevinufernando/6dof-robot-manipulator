@@ -19,13 +19,17 @@ import sys
 # pointing straight down: an annulus around the S-axis, inside the S-axis range.
 R_MIN, R_MAX = 0.40, 0.75          # m, horizontal distance from the S-axis
 ANGLE_MAX_DEG = 150.0              # |S-axis angle| (datasheet limit is 170)
+BOX_A_HALF, BOX_A_MARGIN = 0.15, 0.10   # keep Box B off Box A (half size + margin)
 
 
-def random_reachable_xy(rng):
-    """Uniformly distributed point in the reachable annulus sector."""
-    r = math.sqrt(rng.uniform(R_MIN ** 2, R_MAX ** 2))   # sqrt -> uniform over area
-    a = math.radians(rng.uniform(-ANGLE_MAX_DEG, ANGLE_MAX_DEG))
-    return r * math.cos(a), r * math.sin(a)
+def random_reachable_xy(rng, box_a=(0.5, 0.5)):
+    """Uniformly distributed point in the reachable annulus sector, away from Box A."""
+    while True:
+        r = math.sqrt(rng.uniform(R_MIN ** 2, R_MAX ** 2))   # sqrt -> uniform over area
+        a = math.radians(rng.uniform(-ANGLE_MAX_DEG, ANGLE_MAX_DEG))
+        x, y = r * math.cos(a), r * math.sin(a)
+        if max(abs(x - box_a[0]), abs(y - box_a[1])) > BOX_A_HALF + BOX_A_MARGIN:
+            return x, y
 
 
 def set_pose(world, name, x, y, z, yaw_deg):
@@ -46,10 +50,12 @@ def main():
     p.add_argument('--random', action='store_true', help='pick a random reachable location')
     p.add_argument('--seed', type=int, default=None)
     p.add_argument('--world', default='gp7_world')
+    p.add_argument('--box-a', nargs=2, type=float, default=(0.5, 0.5), metavar=('X', 'Y'),
+                   help='Box A centre, kept clear by --random')
     a = p.parse_args()
 
     if a.random:
-        a.x, a.y = random_reachable_xy(random.Random(a.seed))
+        a.x, a.y = random_reachable_xy(random.Random(a.seed), a.box_a)
     elif a.x is None or a.y is None:
         p.error('give x y, or --random')
 

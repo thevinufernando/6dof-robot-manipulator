@@ -9,10 +9,9 @@
    '- gripper_tcp                 fixed, tool centre point between the pads
 
   mimic:=true adds a <mimic> tag so RViz / joint_state_publisher treat the
-  gripper as ONE degree of freedom (one slider). Gazebo's DART engine does not
-  support mimic constraints, so for Gazebo (mimic:=false) each finger has its
-  own controller, both listening to the same command topic (gp7.gazebo.xacro),
-  and Gazebo publishes both finger joint states itself.
+  gripper as ONE degree of freedom (one slider). In Gazebo (mimic:=false) both
+  finger joints are driven by the same controller with the same command,
+  because Gazebo's DART engine has no mimic constraint.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 

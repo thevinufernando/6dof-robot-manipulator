@@ -1,0 +1,89 @@
+# ros2_control controllers for the GP7 in Gazebo (loaded by gz_ros2_control).
+#
+#   joint_state_broadcaster : /joint_states (arm + both fingers)
+#   arm_controller          : joint_trajectory_controller, VELOCITY command interface
+#   gripper_controller      : joint_trajectory_controller, EFFORT command interface (PID)
+controller_manager:
+  ros__parameters:
+    update_rate: 1000  # Hz = Gazebo physics rate (the finger PID needs the 1 ms step)
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    gripper_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+# gz_ros2_control hardware node (named gz_ros_control)
+gz_ros_control:
+  ros__parameters:
+    hold_joints: true
+
+arm_controller:
+  ros__parameters:
+    joints:
+      - joint_1_s
+      - joint_2_l
+      - joint_3_u
+      - joint_4_r
+      - joint_5_b
+      - joint_6_t
+    command_interfaces:
+      - velocity
+    state_interfaces:
+      - position
+      - velocity
+    interpolation_method: splines
+    allow_partial_joints_goal: false
+    open_loop_control: false
+    state_publish_rate: 100.0
+    action_monitor_rate: 50.0
+    # Velocity command = ff_velocity_scale * q_dot_ref + p * (q_ref - q)   [rad/s]
+    gains:
+      joint_1_s: {p: 10.0, i: 0.0, d: 0.0, i_clamp: 0.0, ff_velocity_scale: 1.0}
+      joint_2_l: {p: 10.0, i: 0.0, d: 0.0, i_clamp: 0.0, ff_velocity_scale: 1.0}
+      joint_3_u: {p: 10.0, i: 0.0, d: 0.0, i_clamp: 0.0, ff_velocity_scale: 1.0}
+      joint_4_r: {p: 10.0, i: 0.0, d: 0.0, i_clamp: 0.0, ff_velocity_scale: 1.0}
+      joint_5_b: {p: 10.0, i: 0.0, d: 0.0, i_clamp: 0.0, ff_velocity_scale: 1.0}
+      joint_6_t: {p: 10.0, i: 0.0, d: 0.0, i_clamp: 0.0, ff_velocity_scale: 1.0}
+    constraints:
+      stopped_velocity_tolerance: 0.01
+      goal_time: 0.5
+      joint_1_s: {trajectory: 0.05, goal: 0.002}
+      joint_2_l: {trajectory: 0.05, goal: 0.002}
+      joint_3_u: {trajectory: 0.05, goal: 0.002}
+      joint_4_r: {trajectory: 0.05, goal: 0.002}
+      joint_5_b: {trajectory: 0.05, goal: 0.002}
+      joint_6_t: {trajectory: 0.05, goal: 0.002}
+
+gripper_controller:
+  ros__parameters:
+    # Both fingers get the same reference (Gazebo has no mimic constraint).
+    joints:
+      - gripper_left_finger_joint
+      - gripper_right_finger_joint
+    command_interfaces:
+      - effort
+    state_interfaces:
+      - position
+      - velocity
+    interpolation_method: splines
+    allow_partial_joints_goal: false
+    open_loop_control: false
+    state_publish_rate: 100.0
+    action_monitor_rate: 50.0
+    # Finger force [N] = p * (q_ref - q) + d * (q_dot_ref - q_dot)
+    #  - grip force on a blocked object = p * squeeze, e.g. 3000 N/m * 6.7 mm = 20 N
+    #  - stability at the 1 ms step: d * dt / finger_mass = 60 * 0.001 / 0.1 = 0.6 < 2
+    gains:
+      gripper_left_finger_joint:  {p: 3000.0, i: 0.0, d: 60.0, i_clamp: 0.0}
+      gripper_right_finger_joint: {p: 3000.0, i: 0.0, d: 60.0, i_clamp: 0.0}
+    # Tolerances disabled (0): when the fingers close on an object they stop short
+    # of the reference by design. Grasp success is checked from the finger positions.
+    constraints:
+      stopped_velocity_tolerance: 0.0
+      goal_time: 0.0
+      gripper_left_finger_joint:  {trajectory: 0.0, goal: 0.0}
+      gripper_right_finger_joint: {trajectory: 0.0, goal: 0.0}
