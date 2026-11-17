@@ -42,6 +42,7 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 ├── ros2_ws/src/
 │   ├── gp7_description/   # URDF/xacro, meshes, D-H table, joint limits, gripper, RViz
 │   ├── gp7_kinematics/    # Forward and inverse kinematics (Python), IK command-line tool
+│   ├── gp7_control/       # Move to end-effector poses, gripper commands (ROS 2 nodes)
 │   └── gp7_gazebo/        # Gazebo world, box models, launch file, ROS–Gazebo bridge
 └── tools/                 # Offline helpers: mesh preparation, D-H utilities, FK check
 ```
@@ -95,20 +96,38 @@ The configuration is in `ros2_ws/src/gp7_gazebo/config/controllers.yaml`.
 
 ## Usage
 
-Move the arm (joint angles in radians):
+Move the gripper to an end-effector pose. The inverse kinematics picks the joint angles closest to the current ones, and `arm_controller` moves there (position in metres; by default the gripper points straight down):
+
+```bash
+ros2 run gp7_control move_to_pose 0.55 -0.30 0.20               # top-down
+ros2 run gp7_control move_to_pose 0.45 0.10 0.30 --yaw 30       # rotated about the vertical
+ros2 run gp7_control move_to_pose 0.50 0.20 0.60 --rpy 150 20 40 # any orientation (deg)
+ros2 run gp7_control move_to_pose --joints 0 -20 -10 0 -60 0    # joint angles (deg)
+```
+
+Open and close the gripper:
+
+```bash
+ros2 run gp7_control gripper open
+ros2 run gp7_control gripper close
+ros2 run gp7_control gripper grasp 0.05        # close on a 5 cm object with 20 N per finger
+```
+
+Send pose goals as messages instead:
+
+```bash
+ros2 run gp7_control pose_goal_node
+ros2 topic pub --once /gp7/tcp_goal geometry_msgs/msg/PoseStamped \
+  "{header: {frame_id: base_link}, pose: {position: {x: 0.55, y: -0.3, z: 0.2},
+    orientation: {x: 1.0, y: 0.0, z: 0.0, w: 0.0}}}"
+```
+
+The controllers can also be driven directly through their actions:
 
 ```bash
 ros2 action send_goal /arm_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory \
   "{trajectory: {joint_names: [joint_1_s, joint_2_l, joint_3_u, joint_4_r, joint_5_b, joint_6_t],
     points: [{positions: [0.3, -0.4, 0.2, 0.0, -0.6, 0.0], time_from_start: {sec: 3}}]}}"
-```
-
-Open and close the gripper (finger position per finger: `0.0` = open, `0.0425` = closed):
-
-```bash
-ros2 action send_goal /gripper_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory \
-  "{trajectory: {joint_names: [gripper_left_finger_joint, gripper_right_finger_joint],
-    points: [{positions: [0.03, 0.03], time_from_start: {sec: 1}}]}}"
 ```
 
 Move Box B while the simulation is running:
@@ -129,6 +148,15 @@ Solve the inverse kinematics for a gripper pose (position in metres; by default 
 ```bash
 ros2 run gp7_kinematics ik_solver 0.55 -0.30 0.025            # top-down grasp
 ros2 run gp7_kinematics ik_solver 0.5 0.2 0.6 --rpy 150 20 40 # any orientation (deg)
+```
+
+## Troubleshooting
+
+If `ros2 topic list` or `ros2 control ...` commands hang, the ROS 2 daemon is stuck. Restart it:
+
+```bash
+ros2 daemon stop || pkill -f ros2cli.daemon
+ros2 daemon start
 ```
 
 ## License
