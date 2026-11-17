@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'plot_plan = gp7_motion.plot_plan:main',
+            'plot_run = gp7_motion.plot_run:main',
         ],
     },
 )

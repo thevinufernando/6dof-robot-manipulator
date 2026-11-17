@@ -38,8 +38,11 @@ def set_pose(world, name, x, y, z, yaw_deg):
            f"orientation: {{x: 0, y: 0, z: {qz}, w: {qw}}}")
     cmd = ['gz', 'service', '-s', f'/world/{world}/set_pose', '--reqtype', 'gz.msgs.Pose',
            '--reptype', 'gz.msgs.Boolean', '--timeout', '3000', '--req', req]
-    out = subprocess.run(cmd, capture_output=True, text=True)
-    return out.returncode == 0 and 'true' in out.stdout
+    for _ in range(3):               # a single call can time out while Gazebo is busy
+        out = subprocess.run(cmd, capture_output=True, text=True)
+        if out.returncode == 0 and 'true' in out.stdout:
+            return True
+    return False
 
 
 def main():

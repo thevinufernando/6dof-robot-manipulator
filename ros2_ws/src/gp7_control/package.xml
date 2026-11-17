@@ -3,12 +3,17 @@
 <package format="3">
   <name>gp7_control</name>
   <version>0.1.0</version>
-  <description>Move the YASKAWA GP7 to end-effector poses (IK + joint_trajectory_controller) and drive its gripper.</description>
+  <description>ROS 2 control layer for the YASKAWA GP7: pose goals (IK + joint_trajectory_controller), gripper, and the pick and place execution node.</description>
   <maintainer email="user@todo.todo">todo</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>gp7_kinematics</exec_depend>
+  <exec_depend>gp7_motion</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <exec_depend>control_msgs</exec_depend>
   <exec_depend>trajectory_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>

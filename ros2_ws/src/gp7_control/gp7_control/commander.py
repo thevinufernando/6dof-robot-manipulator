@@ -13,6 +13,7 @@ Move duration (when not given): a cubic spline with zero end velocities peaks at
 """
 import math
 import threading
+import time
 
 import numpy as np
 import rclpy
@@ -71,10 +72,11 @@ class GP7Commander(Node):
 
     def wait_for_state(self, timeout=10.0):
         """Block (spinning) until /joint_states has arrived."""
-        end = self.get_clock().now().nanoseconds + timeout * 1e9
+        # wall-clock timeout: with use_sim_time the ROS clock reads 0 until /clock arrives
+        end = time.monotonic() + timeout
         while not self._js_event.is_set():
             rclpy.spin_once(self, timeout_sec=0.1)
-            if self.get_clock().now().nanoseconds > end:
+            if time.monotonic() > end:
                 raise TimeoutError('no /joint_states - is the simulation running?')
 
     def current_q(self, fresh=True):
@@ -107,6 +109,30 @@ class GP7Commander(Node):
             positions=[float(v) for v in q_goal], velocities=[0.0] * 6,
             time_from_start=_duration_msg(duration))]
         return self._run(self.arm, goal, duration + timeout_margin, 'arm_controller')
+
+    def follow_trajectory(self, t, q, qd=None, qdd=None, timeout_margin=10.0):
+        """Send a sampled joint trajectory (from the planner) to arm_controller and wait.
+
+        t: (N,) times from the start [s]; q, qd, qdd: (N,6). With positions, velocities
+        and accelerations the controller interpolates with quintic splines between the
+        samples and feeds the velocity forward. A first sample at t = 0 (= the current
+        state) is dropped: the controller always starts from where the arm actually is.
+        """
+        t = np.asarray(t, float)
+        keep = t > 1e-9
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = JointTrajectory(joint_names=list(JOINT_NAMES))
+        for k in np.where(keep)[0]:
+            p = JointTrajectoryPoint(positions=[float(v) for v in q[k]],
+                                     time_from_start=_duration_msg(float(t[k])))
+            if qd is not None:
+                p.velocities = [float(v) for v in qd[k]]
+            if qdd is not None:
+                p.accelerations = [float(v) for v in qdd[k]]
+            goal.trajectory.points.append(p)
+        if not goal.trajectory.points:
+            return True, 'arm_controller: nothing to do'
+        return self._run(self.arm, goal, float(t[-1]) + timeout_margin, 'arm_controller')
 
     def move_to_pose(self, T_goal, duration=None, speed_scale=0.25):
         """IK + joint-space move to a TCP pose. Returns (ok, message, solution)."""

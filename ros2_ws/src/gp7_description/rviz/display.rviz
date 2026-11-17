@@ -33,6 +33,31 @@ Visualization Manager:
       Show Axes: true
       Show Names: true
       Value: true
+    - Class: rviz_default_plugins/Path
+      Name: Planned TCP path
+      Enabled: true
+      Color: 42; 120; 214
+      Line Style: Lines
+      Line Width: 0.003
+      Pose Style: None
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /pick_place/planned_path
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Pick & place scene
+      Enabled: true
+      Namespaces: {}
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /pick_place/markers
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

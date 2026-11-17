@@ -101,9 +101,27 @@ def test_pick_place_default(planner, profile):
     plan = plan_pick_place(planner, CFG, (0.55, -0.30, 0.0, 0.0), np.zeros(6), profile=profile)
     _check_plan(plan, planner)
     names = [s.name for s in plan.steps]
-    assert names == ['open', 'to_ready', 'to_pregrasp', 'approach', 'grasp', 'lift', 'transfer',
+    assert names == ['open', 'to_ready', 'to_above_b', 'lower', 'approach', 'grasp', 'lift', 'transfer',
                      'descend', 'release', 'retreat', 'to_ready_end']
-    assert np.allclose(plan.arm_steps[5].trajectory.tcp[-1], [0.5, 0.5, 0.20 + 0.025 + 0.002], atol=1e-9)
+    descend = next(s.trajectory for s in plan.steps if s.name == 'descend')
+    assert np.allclose(descend.tcp[-1], [0.5, 0.5, 0.20 + 0.025 + 0.002], atol=1e-9)
+
+
+def test_free_moves_start_and_end_at_safe_height(planner):
+    plan = plan_pick_place(planner, CFG, (0.192, 0.611, 0.0, 0.0), np.zeros(6))   # the Gazebo failure case
+    for st in plan.arm_steps:
+        if st.trajectory.kind == 'joint' and st.name != 'to_ready':
+            assert st.trajectory.tcp[0, 2] >= CFG['task']['z_safe'] - 1e-9
+            assert st.trajectory.tcp[-1, 2] >= CFG['task']['z_safe'] - 1e-9
+
+
+def test_clearance_check_rejects_a_path_through_box_a(planner):
+    from gp7_motion.sequence import check_box_a_clearance
+    kin = planner.kin
+    q0 = kin.ik_closest(top_down_pose(0.45, 0.0, 0.40)).q
+    q1 = kin.ik_closest(top_down_pose(0.20, 0.61, 0.175), q0).q        # the old, too low pre-grasp
+    with pytest.raises(PlanningError):
+        check_box_a_clearance(planner.plan_joint(q0, q1, 'old_to_pregrasp'), CFG['task'])
 
 
 def test_pick_place_random_box_b(planner):

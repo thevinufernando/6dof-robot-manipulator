@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'gp7_control'
@@ -9,6 +11,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,6 +24,7 @@ setup(
             'move_to_pose = gp7_control.move_to_pose:main',
             'gripper = gp7_control.gripper_cli:main',
             'pose_goal_node = gp7_control.pose_goal_node:main',
+            'pick_place_node = gp7_control.pick_place_node:main',
         ],
     },
 )

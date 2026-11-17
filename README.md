@@ -17,7 +17,7 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 - Trajectory planner with trapezoidal and S-curve velocity profiles: synchronized joint-space moves, and Cartesian moves that keep the gripper orientation fixed while carrying
 - Joint limits and speeds taken from the GP7 datasheet
 
-**In progress:** executing the planned pick-and-place sequence in Gazebo.
+- Complete pick and place in Gazebo: Box B is picked from any reachable spot (and yaw) and placed on the centre of Box A while staying upright
 
 ## Requirements
 
@@ -150,6 +150,29 @@ Solve the inverse kinematics for a gripper pose (position in metres; by default 
 ```bash
 ros2 run gp7_kinematics ik_solver 0.55 -0.30 0.025            # top-down grasp
 ros2 run gp7_kinematics ik_solver 0.5 0.2 0.6 --rpy 150 20 40 # any orientation (deg)
+```
+
+## Pick and place
+
+Start the simulation, then run the task. The node reads Box B's position from Gazebo, plans the whole motion, shows the planned path in RViz, and executes it:
+
+```bash
+ros2 launch gp7_gazebo gazebo.launch.py rviz:=true box_b_random:=true
+ros2 launch gp7_control pick_place.launch.py
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `profile` | from config (`scurve`) | `scurve` or `trapezoidal` |
+| `dry_run` | `false` | Plan and show the path in RViz without moving |
+| `log_dir` | – | Save the planned and measured motion as CSV files |
+| `box_a_x`, `box_a_y` | `0.5`, `0.5` | Box A position (must match the simulation) |
+
+To run it again, move Box B (`ros2 run gp7_gazebo move_box_b.py --random`) and launch `pick_place.launch.py` once more. Plots of a logged run (planned vs measured joint velocities, Box B height and tilt):
+
+```bash
+ros2 launch gp7_control pick_place.launch.py log_dir:=runs/run1
+ros2 run gp7_motion plot_run runs/run1
 ```
 
 ## Trajectory planning
