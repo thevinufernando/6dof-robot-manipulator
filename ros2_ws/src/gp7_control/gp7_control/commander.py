@@ -24,8 +24,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from gp7_kinematics import JOINT_NAMES, GP7Kinematics, IKError, pose_error
-from gp7_kinematics.kinematics import _find_config_dir
+from gp7_kinematics import JOINT_NAMES, GP7Kinematics, IKError, find_config_dir, pose_error
 
 FINGER_JOINTS = ['gripper_left_finger_joint', 'gripper_right_finger_joint']
 
@@ -49,7 +48,7 @@ class GP7Commander(Node):
     def __init__(self, node_name='gp7_commander', tool='tcp'):
         super().__init__(node_name)
         self.kin = GP7Kinematics.from_config(tool=tool)
-        cfg = _find_config_dir()
+        cfg = find_config_dir()
         with open(f'{cfg}/joint_limits.yaml') as f:
             lim = yaml.safe_load(f)
         self.v_max = np.radians([lim[n]['velocity_deg_s'] for n in JOINT_NAMES])

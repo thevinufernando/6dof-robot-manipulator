@@ -1,0 +1,28 @@
+# Pick & place planning parameters (gp7_motion).
+planner:
+  dt: 0.01                 # trajectory sample time [s] (100 Hz points for the controller)
+  profile: scurve          # scurve | trapezoidal
+
+# Joint limits used for joint-space moves and checked on every Cartesian move.
+# Speeds: datasheet maximum x speed_scale. The datasheet has no acceleration
+# limits, so they are set by how long a joint takes to reach its top speed.
+joint_limits:
+  speed_scale: 0.3         # fraction of the datasheet joint speeds
+  accel_time: 0.4          # s to reach the (scaled) top speed  -> a = v / accel_time
+  jerk_time: 0.1           # s to reach the top acceleration    -> j = a / jerk_time
+
+# Cartesian TCP limits per segment type (speed m/s, acceleration m/s^2, jerk m/s^3)
+cartesian:
+  approach: {v: 0.05, a: 0.20, j: 1.0}   # slow moves close to contact: approach, descend, retreat
+  transfer: {v: 0.25, a: 0.50, j: 2.5}   # lift and transfer (carrying Box B)
+
+task:
+  box_a: {x: 0.5, y: 0.5, height: 0.20}  # Box A centre (on the ground) and height [m]
+  box_b_size: 0.05                       # cube edge [m]
+  ready_tcp: [0.45, 0.0, 0.40]           # start/end TCP position (gripper pointing down)
+  approach_height: 0.15                  # pre-grasp / retreat height above the grasp/place TCP
+  z_safe: 0.35                           # TCP height during the transfer
+  place_clearance: 0.002                 # Box B is released this far above Box A's top
+  grip_force: 20.0                       # N per finger
+  finger_p_gain: 3000.0                  # must match gripper_controller gains.p (controllers.yaml)
+  gripper_time: 0.6                      # s to open / close

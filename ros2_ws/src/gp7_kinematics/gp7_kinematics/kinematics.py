@@ -182,7 +182,7 @@ class GP7Kinematics:
     @classmethod
     def from_config(cls, config_dir=None, tool='tcp'):
         """Build from gp7_description/config. tool: 'tcp' (gripper TCP) or 'flange'."""
-        config_dir = config_dir or _find_config_dir()
+        config_dir = config_dir or find_config_dir()
         with open(os.path.join(config_dir, 'kinematics.yaml')) as f:
             dh_rows = yaml.safe_load(f)['dh']
         with open(os.path.join(config_dir, 'joint_limits.yaml')) as f:
@@ -208,6 +208,31 @@ class GP7Kinematics:
     def fk(self, q):
         """T_0^tool(q): pose of the tool frame (TCP or flange) in the base frame."""
         return self.fk_frames(q)[6] @ self.T_tool
+
+    # ------------------------------------------------------------------ differential kinematics
+    def jacobian(self, q):
+        """6x6 geometric Jacobian at the tool point, in base-frame coordinates.
+
+        [v; w] = J(q) q_dot. Every joint is revolute and joint i turns about z_{i-1},
+        so column i is   J_v = z_{i-1} x (p_tool - o_{i-1}),   J_w = z_{i-1}.
+        """
+        T = self.fk_frames(q)
+        p = (T[6] @ self.T_tool)[:3, 3]
+        J = np.empty((6, 6))
+        for i in range(6):
+            z, o = T[i][:3, 2], T[i][:3, 3]
+            J[:3, i] = np.cross(z, p - o)
+            J[3:, i] = z
+        return J
+
+    def manipulability(self, q):
+        """Yoshikawa manipulability sqrt(det(J J^T)); 0 at a singularity."""
+        J = self.jacobian(q)
+        return float(math.sqrt(max(0.0, np.linalg.det(J @ J.T))))
+
+    def joint_velocities(self, q, v, w=(0.0, 0.0, 0.0)):
+        """q_dot for a desired tool twist (v linear [m/s], w angular [rad/s]): q_dot = J^-1 [v; w]."""
+        return np.linalg.solve(self.jacobian(q), np.r_[v, w])
 
     # ------------------------------------------------------------------ inverse kinematics
     def wrist_center(self, T_target):
@@ -310,7 +335,7 @@ class GP7Kinematics:
         return out
 
 
-def _find_config_dir():
+def find_config_dir():
     """gp7_description/config: installed share dir, else the source tree."""
     try:
         from ament_index_python.packages import get_package_share_directory
@@ -322,3 +347,6 @@ def _find_config_dir():
             if os.path.isfile(os.path.join(cand, 'kinematics.yaml')):
                 return cand
         raise FileNotFoundError('gp7_description/config not found - source the workspace')
+
+
+_find_config_dir = find_config_dir   # backwards-compatible alias

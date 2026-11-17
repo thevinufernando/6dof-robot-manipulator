@@ -14,9 +14,10 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 - Gazebo world with the robot at the origin, a target box (Box A) and a box to pick (Box B)
 - Box B can be placed anywhere at launch, at a random reachable spot, or moved while the simulation runs
 - Closed-form inverse kinematics for the gripper TCP (all 8 arm configurations, joint limits, singularities)
+- Trajectory planner with trapezoidal and S-curve velocity profiles: synchronized joint-space moves, and Cartesian moves that keep the gripper orientation fixed while carrying
 - Joint limits and speeds taken from the GP7 datasheet
 
-**In progress:** trajectory planning with a smooth velocity profile, and the full pick-and-place sequence.
+**In progress:** executing the planned pick-and-place sequence in Gazebo.
 
 ## Requirements
 
@@ -43,6 +44,7 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 │   ├── gp7_description/   # URDF/xacro, meshes, D-H table, joint limits, gripper, RViz
 │   ├── gp7_kinematics/    # Forward and inverse kinematics (Python), IK command-line tool
 │   ├── gp7_control/       # Move to end-effector poses, gripper commands (ROS 2 nodes)
+│   ├── gp7_motion/        # Trajectory planning: velocity profiles, Cartesian paths, pick & place
 │   └── gp7_gazebo/        # Gazebo world, box models, launch file, ROS–Gazebo bridge
 └── tools/                 # Offline helpers: mesh preparation, D-H utilities, FK check
 ```
@@ -149,6 +151,17 @@ Solve the inverse kinematics for a gripper pose (position in metres; by default 
 ros2 run gp7_kinematics ik_solver 0.55 -0.30 0.025            # top-down grasp
 ros2 run gp7_kinematics ik_solver 0.5 0.2 0.6 --rpy 150 20 40 # any orientation (deg)
 ```
+
+## Trajectory planning
+
+The planner can be run offline (no simulation needed). This plans the whole pick and place for a Box B position and writes plots of the velocity profiles, joint trajectories, TCP path and gripper orientation:
+
+```bash
+ros2 run gp7_motion plot_plan 0.55 -0.30 --yaw 25 --out plan_plots
+ros2 run gp7_motion plot_plan 0.55 -0.30 --profile trapezoidal
+```
+
+Speeds, accelerations, heights and Box A's position are set in `ros2_ws/src/gp7_motion/config/pick_place.yaml`.
 
 ## Troubleshooting
 

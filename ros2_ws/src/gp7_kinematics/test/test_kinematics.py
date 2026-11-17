@@ -101,3 +101,39 @@ def test_task_box_a_reachability(tcp):
     # Box B placed on Box A's top centre (z = 0.20 + 0.025): unreachable at (1, 1).
     assert tcp.ik(top_down_pose(1.0, 1.0, 0.225)) == []
     assert tcp.ik(top_down_pose(0.6, 0.6, 0.225)) != []
+
+
+# --------------------------------------------------------------------------- Jacobian
+def _rot_log(R):
+    """Rotation vector of a (small) rotation matrix."""
+    a = math.acos(max(-1.0, min(1.0, (np.trace(R) - 1.0) / 2.0)))
+    if a < 1e-12:
+        return np.zeros(3)
+    return a / (2 * math.sin(a)) * np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+
+
+@pytest.mark.parametrize('tool', ['tcp', 'flange'])
+def test_jacobian_matches_finite_differences(tool):
+    kin = GP7Kinematics.from_config(tool=tool)
+    rng = np.random.default_rng(3)
+    h = 1e-6
+    for q in random_q(kin, rng, 50):
+        J = kin.jacobian(q)
+        T0 = kin.fk(q)
+        for i in range(6):
+            dq = np.zeros(6)
+            dq[i] = h
+            T1 = kin.fk(q + dq)
+            v = (T1[:3, 3] - T0[:3, 3]) / h
+            w = _rot_log(T1[:3, :3] @ T0[:3, :3].T) / h
+            assert np.allclose(J[:3, i], v, atol=1e-5)
+            assert np.allclose(J[3:, i], w, atol=1e-5)
+
+
+def test_joint_velocities_and_singularity(tcp):
+    q = np.array([0.3, -0.5, -0.2, 0.4, -0.9, 0.2])
+    v = np.array([0.1, -0.05, 0.02])
+    qd = tcp.joint_velocities(q, v)
+    assert np.allclose(tcp.jacobian(q) @ qd, np.r_[v, 0, 0, 0])
+    assert tcp.manipulability(q) > 1e-3
+    assert tcp.manipulability([0.3, -0.5, -0.2, 0.4, 0.0, 0.2]) < 1e-9   # wrist singular (q5 = 0)
