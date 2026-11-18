@@ -168,7 +168,7 @@ ros2 launch gp7_control pick_place.launch.py
 | `log_dir` | – | Save the planned and measured motion as CSV files |
 | `box_a_x`, `box_a_y` | `0.5`, `0.5` | Box A position (must match the simulation) |
 
-To run it again, move Box B (`ros2 run gp7_gazebo move_box_b.py --random`) and launch `pick_place.launch.py` once more. Plots of a logged run (planned vs measured joint velocities, Box B height and tilt):
+To run it again, move Box B (`ros2 run gp7_gazebo move_box_b.py --random`) and launch `pick_place.launch.py` once more. Plots of a logged run (planned vs measured joint velocities and gripper pose, Box B height and tilt):
 
 ```bash
 ros2 launch gp7_control pick_place.launch.py log_dir:=runs/run1

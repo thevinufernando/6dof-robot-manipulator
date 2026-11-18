@@ -1,0 +1,13 @@
+step,kind,t_start,t_end
+open,gripper,1.2504,2.1522
+to_ready,arm,2.1528,3.0572
+to_above_b,arm,3.0577,3.8204
+lower,arm,3.8209,5.2443
+approach,arm,5.2448,8.7094
+grasp,gripper,8.7100,9.6112
+lift,arm,9.6120,11.6368
+transfer,arm,11.6373,15.8029
+descend,arm,15.8035,18.7293
+release,gripper,18.7299,19.6317
+retreat,arm,19.6323,23.0985
+to_ready_end,arm,23.0990,24.0221
