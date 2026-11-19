@@ -190,9 +190,9 @@ class GP7Kinematics:
         lower = [math.radians(lim[n]['lower_deg']) for n in JOINT_NAMES]
         upper = [math.radians(lim[n]['upper_deg']) for n in JOINT_NAMES]
         T_tool = None
-        if tool == 'tcp':
-            with open(os.path.join(config_dir, 'gripper.yaml')) as f:
-                T_tool = make_pose([0.0, 0.0, yaml.safe_load(f)['tcp_z']])
+        if tool == 'tcp':      # Robotiq 2F-85 TCP (pad centre), from the gripper model
+            from .gripper import GripperModel
+            T_tool = make_pose([0.0, 0.0, GripperModel.from_config(config_dir).tcp_z])
         elif tool != 'flange':
             raise ValueError("tool must be 'tcp' or 'flange'")
         return cls(dh_rows, lower, upper, T_tool)

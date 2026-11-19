@@ -25,9 +25,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from gp7_kinematics import JOINT_NAMES, GP7Kinematics, IKError, find_config_dir, pose_error
-
-FINGER_JOINTS = ['gripper_left_finger_joint', 'gripper_right_finger_joint']
+from gp7_kinematics import (JOINT_NAMES, GP7Kinematics, GripperModel, IKError, find_config_dir,
+                            pose_error)
 
 
 def quat_to_matrix(x, y, z, w):
@@ -53,11 +52,8 @@ class GP7Commander(Node):
         with open(f'{cfg}/joint_limits.yaml') as f:
             lim = yaml.safe_load(f)
         self.v_max = np.radians([lim[n]['velocity_deg_s'] for n in JOINT_NAMES])
-        with open(f'{cfg}/gripper.yaml') as f:
-            grp = yaml.safe_load(f)
-        self.stroke = grp['stroke']
-        # Must match gripper_controller gains.p in gp7_gazebo/config/controllers.yaml
-        self.finger_kp = float(self.declare_parameter('finger_p_gain', 3000.0).value)
+        # Robotiq 2F-85: one knuckle angle -> six joint references (software mimic)
+        self.grp = GripperModel.from_config(cfg)
 
         self._js = None
         self._js_event = threading.Event()
@@ -85,9 +81,19 @@ class GP7Commander(Node):
         self.wait_for_state()
         return np.array([self._js[n] for n in JOINT_NAMES])
 
-    def current_fingers(self):
+    def current_gripper(self):
+        """Measured positions of the six gripper joints (GripperModel.joint_names order)."""
         self.wait_for_state()
-        return [self._js[n] for n in FINGER_JOINTS]
+        return [self._js[n] for n in self.grp.joint_names]
+
+    def current_knuckle(self):
+        """Measured knuckle angle theta [rad] (mean of both knuckles)."""
+        q = dict(zip(self.grp.joint_names, self.current_gripper()))
+        return 0.5 * (q['robotiq_85_left_knuckle_joint'] - q['robotiq_85_right_knuckle_joint'])
+
+    def current_width(self):
+        """Pad gap [m] from the measured knuckle angle."""
+        return self.grp.width_for_theta(self.current_knuckle())
 
     # ------------------------------------------------------------------ arm
     def plan_pose(self, T_goal, q_start=None):
@@ -148,28 +154,46 @@ class GP7Commander(Node):
         return ok, msg, sol
 
     # ------------------------------------------------------------------ gripper
-    def gripper(self, position, duration=0.5):
-        """Both fingers to `position` [m per finger]: 0 = open, stroke = closed."""
-        position = float(min(max(position, 0.0), self.stroke))
+    def gripper(self, theta, duration=None, theta_linkage=None):
+        """Knuckle angle `theta` [rad]: 0 = open (84 mm) .. 0.8 = closed.
+
+        Sends all six 2F-85 joints q_j = multiplier_j * theta (Gazebo cannot enforce the URDF
+        mimic constraints, so every joint is driven). For a grasp the inner knuckles and
+        finger tips get `theta_linkage` (the contact angle) instead - see GripperModel.
+        """
+        theta = self.grp.clamp(theta)
+        if duration is None:
+            duration = self.grp.move_time(self.current_knuckle(), theta)
         goal = FollowJointTrajectory.Goal()
-        goal.trajectory = JointTrajectory(joint_names=list(FINGER_JOINTS))
+        goal.trajectory = JointTrajectory(joint_names=list(self.grp.joint_names))
         goal.trajectory.points = [JointTrajectoryPoint(
-            positions=[position, position], velocities=[0.0, 0.0],
+            positions=self.grp.references(theta, theta_linkage), velocities=[0.0] * len(self.grp.joint_names),
             time_from_start=_duration_msg(duration))]
         ok, msg = self._run(self.grip, goal, duration + 5.0, 'gripper_controller')
         if ok:
-            fingers = self.current_fingers()
-            msg += f' | fingers at {fingers[0]:.4f} / {fingers[1]:.4f} m'
+            msg += (f' | knuckle {self.current_knuckle():.4f} rad (ref {theta:.4f}), '
+                    f'pad gap {self.current_width() * 1000:.1f} mm')
         return ok, msg
 
-    def grasp(self, width, force=20.0, duration=0.5):
-        """Close on an object of `width` [m] with about `force` [N] per finger.
+    def open_gripper(self, duration=None):
+        return self.gripper(self.grp.theta_open, duration)
 
-        The finger PID pushes with F = Kp * (q_ref - q), so the reference is set
-        `force / Kp` beyond the contact position q_contact = (0.085 - width) / 2.
+    def close_gripper(self, duration=None):
+        return self.gripper(self.grp.theta_closed, duration)
+
+    def gripper_width(self, width, duration=None):
+        """Pads `width` [m] apart (no object: position command)."""
+        return self.gripper(self.grp.theta_for_width(width), duration)
+
+    def grasp(self, width, force=None, duration=None):
+        """Close on an object of `width` [m] with about `force` [N] per pad.
+
+        The knuckle PID pushes with tau = Kp (theta_ref - theta) and the pad force is
+        tau / lever, so the knuckle reference is set force * lever / Kp beyond the contact
+        angle; the finger tips are held at the contact angle (pads parallel).
         """
-        q_contact = (2 * self.stroke - width) / 2.0
-        return self.gripper(q_contact + force / self.finger_kp, duration)
+        theta_ref, theta_contact = self.grp.grasp_theta(width, force)
+        return self.gripper(theta_ref, duration, theta_linkage=theta_contact)
 
     # ------------------------------------------------------------------ internals
     def _run(self, client, goal, timeout, name):

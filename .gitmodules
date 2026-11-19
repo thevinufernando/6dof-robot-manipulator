@@ -1,0 +1,4 @@
+[submodule "ros2_ws/src/robotiq-ros"]
+	path = ros2_ws/src/robotiq-ros
+	url = https://github.com/robotiq/robotiq-ros.git
+	ignore = untracked

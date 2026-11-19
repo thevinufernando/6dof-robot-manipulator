@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<!--
+  Robotiq 2F-85 on the GP7 flange.
+
+  tool0 (GP7 flange, DH frame {6}, Z out of the flange)
+   '- gripper_coupling      adapter plate GP7 flange -> Robotiq base (ours, 12 mm)
+       '- robotiq_85_base_link ... (Robotiq's macro: base, knuckles, fingers, finger tips)
+   '- gripper_tcp           tool centre point = pad centre at the reference object width
+                            (gripper_geometry.yaml), same orientation as tool0:
+                            Z = approach, Y = closing direction.
+
+  Robotiq's macro is used for GEOMETRY ONLY (include_ros2_control:=false): its own
+  sim_gazebo ros2_control block commands just the knuckle and leaves the 5 mimic joints to
+  the physics engine, which DART cannot do. All 6 joints are declared in our GP7System
+  instead (gp7.ros2_control.xacro). The URDF <mimic> tags stay (RViz, joint_state_publisher);
+  Gazebo logs once that it cannot create mimic constraints - expected.
+
+  Config: config/gripper.yaml (mount, joints, friction), config/gripper_geometry.yaml (TCP).
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find robotiq_description)/urdf/robotiq_2f_85_macro.urdf.xacro"/>
+
+  <!-- Box contact pad on a fingertip (dimensions measured from the Robotiq mesh by
+       tools/robotiq_2f85_geometry.py, `protrusion` proud of the mesh face). Box-box contacts
+       are clean face-face contacts; against the mesh face the object sinks ~1 mm in and the
+       pad's chamfered edges lock it, so friction would not matter. The fixed joint is lumped
+       into the fingertip link by Gazebo. -->
+  <xacro:macro name="gripper_pad" params="prefix side pad mu">
+    <link name="${prefix}gripper_${side}_pad">
+      <collision>
+        <origin xyz="${pad['xyz'][0]} ${pad['xyz'][1]} ${pad['xyz'][2]}"/>
+        <geometry><box size="${pad['size'][0]} ${pad['size'][1]} ${pad['size'][2]}"/></geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}robotiq_85_${side}_finger_tip-gripper_${side}_pad" type="fixed">
+      <parent link="${prefix}robotiq_85_${side}_finger_tip_link"/>
+      <child link="${prefix}gripper_${side}_pad"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <gazebo reference="${prefix}gripper_${side}_pad">
+      <mu1>${mu}</mu1>
+      <mu2>${mu}</mu2>
+    </gazebo>
+    <gazebo reference="${prefix}robotiq_85_${side}_finger_tip_link">
+      <mu1>${mu}</mu1>
+      <mu2>${mu}</mu2>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="gripper_robotiq_2f85" params="prefix:='' parent">
+    <xacro:property name="grp" value="${xacro.load_yaml('$(find gp7_description)/config/gripper.yaml')}"/>
+    <xacro:property name="geo" value="${xacro.load_yaml('$(find gp7_description)/config/gripper_geometry.yaml')}"/>
+    <xacro:property name="cpl" value="${grp['mount']['coupling']}"/>
+
+    <!-- Adapter plate between the GP7 flange and the Robotiq base -->
+    <joint name="${prefix}${parent}-gripper_coupling" type="fixed">
+      <parent link="${prefix}${parent}"/>
+      <child link="${prefix}gripper_coupling"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+    <link name="${prefix}gripper_coupling">
+      <visual>
+        <origin xyz="0 0 ${cpl['length'] / 2}"/>
+        <geometry><cylinder radius="${cpl['radius']}" length="${cpl['length']}"/></geometry>
+        <material name="${prefix}gripper_coupling_material"><color rgba="0.55 0.57 0.60 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${cpl['length'] / 2}"/>
+        <geometry><cylinder radius="${cpl['radius']}" length="${cpl['length']}"/></geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 ${cpl['length'] / 2}"/>
+        <mass value="${cpl['mass']}"/>
+        <inertia ixx="${cpl['mass'] * (3 * cpl['radius'] ** 2 + cpl['length'] ** 2) / 12}" ixy="0" ixz="0"
+                 iyy="${cpl['mass'] * (3 * cpl['radius'] ** 2 + cpl['length'] ** 2) / 12}" iyz="0"
+                 izz="${cpl['mass'] * cpl['radius'] ** 2 / 2}"/>
+      </inertial>
+    </link>
+
+    <!-- Robotiq 2F-85 (geometry only). Base turned about Z so its closing axis (base X)
+         becomes the tool's Y axis. -->
+    <xacro:robotiq_gripper name="${prefix}RobotiqGripper" prefix="${prefix}" parent="${prefix}gripper_coupling"
+                           include_ros2_control="false">
+      <origin xyz="0 0 ${cpl['length']}" rpy="0 0 ${radians(grp['mount']['yaw_deg'])}"/>
+    </xacro:robotiq_gripper>
+
+    <!-- Tool centre point: pad centre at the reference object width -->
+    <link name="${prefix}gripper_tcp"/>
+    <joint name="${prefix}${parent}-gripper_tcp" type="fixed">
+      <parent link="${prefix}${parent}"/>
+      <child link="${prefix}gripper_tcp"/>
+      <origin xyz="0 0 ${cpl['length'] + geo['tcp_z']}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- Contact pads + pad friction in Gazebo (Robotiq's <surface> tags inside the URDF
+         <collision> are classic-Gazebo syntax and are not converted). -->
+    <xacro:gripper_pad prefix="${prefix}" side="left" pad="${geo['pads']['left']}" mu="${grp['friction_mu']}"/>
+    <xacro:gripper_pad prefix="${prefix}" side="right" pad="${geo['pads']['right']}" mu="${grp['friction_mu']}"/>
+  </xacro:macro>
+</robot>

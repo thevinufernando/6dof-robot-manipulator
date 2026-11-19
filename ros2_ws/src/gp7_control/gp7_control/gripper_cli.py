@@ -1,10 +1,11 @@
-"""Open / close the GP7 gripper through gripper_controller.
+"""Open / close the Robotiq 2F-85 through gripper_controller.
 
     ros2 run gp7_control gripper open
-    ros2 run gp7_control gripper close              # fully closed (fingers touch)
-    ros2 run gp7_control gripper 0.02               # finger position [m per finger]
-    ros2 run gp7_control gripper grasp 0.05         # close on a 5 cm object with 20 N
+    ros2 run gp7_control gripper close              # fully closed (pads touch)
+    ros2 run gp7_control gripper 0.06               # pad gap [m]
+    ros2 run gp7_control gripper grasp 0.05         # close on a 5 cm object (default 20 N per pad)
     ros2 run gp7_control gripper grasp 0.05 --force 30
+    ros2 run gp7_control gripper theta 0.4          # knuckle angle [rad] (0 open .. 0.8 closed)
 """
 import argparse
 import sys
@@ -16,25 +17,26 @@ from .commander import GP7Commander
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', help="'open', 'close', 'grasp', or a finger position in metres")
-    ap.add_argument('width', nargs='?', type=float, help='object width [m] for grasp')
-    ap.add_argument('--force', type=float, default=20.0, help='grip force per finger [N] for grasp')
-    ap.add_argument('--duration', type=float, default=0.5, help='closing/opening time [s]')
+    ap.add_argument('command', help="'open', 'close', 'grasp', 'theta', or a pad gap in metres")
+    ap.add_argument('value', nargs='?', type=float, help='object width [m] for grasp / angle [rad] for theta')
+    ap.add_argument('--force', type=float, default=None, help='grip force per pad [N] for grasp (default gripper.yaml)')
+    ap.add_argument('--duration', type=float, default=None, help='closing/opening time [s] (default: from the travel)')
     args = ap.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
     rclpy.init()
     node = GP7Commander('gripper_cli')
     try:
         if args.command == 'open':
-            ok, msg = node.gripper(0.0, args.duration)
+            ok, msg = node.open_gripper(args.duration)
         elif args.command == 'close':
-            ok, msg = node.gripper(node.stroke, args.duration)
-        elif args.command == 'grasp':
-            if args.width is None:
-                ap.error('grasp needs the object width, e.g. grasp 0.05')
-            ok, msg = node.grasp(args.width, args.force, args.duration)
+            ok, msg = node.close_gripper(args.duration)
+        elif args.command in ('grasp', 'theta'):
+            if args.value is None:
+                ap.error(f'{args.command} needs a value, e.g. grasp 0.05 / theta 0.4')
+            ok, msg = (node.grasp(args.value, args.force, args.duration) if args.command == 'grasp'
+                       else node.gripper(args.value, args.duration))
         else:
-            ok, msg = node.gripper(float(args.command), args.duration)
+            ok, msg = node.gripper_width(float(args.command), args.duration)
         print(('OK   ' if ok else 'FAIL ') + msg)
         if not ok:
             sys.exit(1)

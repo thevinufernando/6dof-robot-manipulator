@@ -1,33 +1,20 @@
 <?xml version="1.0"?>
 <!--
-  Top-level GP7 robot description.
+  Top-level GP7 robot description: GP7 arm + Robotiq 2F-85 gripper.
 
   xacro args:
-    gazebo            (true)          include Gazebo extras (false for RViz-only use)
-    sim_control       (ros2_control)  how Gazebo drives the joints:
-                        ros2_control : gz_ros2_control + controllers (arm/gripper actions)
-                        gz_plugins   : Gazebo-only JointPositionControllers (no ROS control)
-    controllers_file  ('')            ros2_control controllers yaml (ros2_control mode)
-    gripper           (true)          attach the 2-finger gripper to tool0
+    gazebo            (true)  include the ros2_control / Gazebo parts (false for RViz-only use)
+    controllers_file  ('')    ros2_control controllers yaml (gp7_gazebo/config/controllers.yaml)
 -->
 <robot name="gp7" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="gazebo" default="true"/>
-  <xacro:arg name="sim_control" default="ros2_control"/>
   <xacro:arg name="controllers_file" default=""/>
-  <xacro:arg name="gripper" default="true"/>
-
-  <xacro:property name="use_gz" value="${'$(arg gazebo)' == 'true'}"/>
-  <xacro:property name="use_r2c" value="${use_gz and '$(arg sim_control)' == 'ros2_control'}"/>
 
   <xacro:include filename="$(find gp7_description)/urdf/gp7_macro.xacro"/>
   <xacro:gp7 prefix=""/>
 
-  <xacro:if value="$(arg gripper)">
-    <xacro:include filename="$(find gp7_description)/urdf/gripper_2f.xacro"/>
-    <!-- <mimic> only for RViz-only use: in Gazebo both fingers are driven
-         (DART has no mimic constraint) and both report their own joint state. -->
-    <xacro:gripper_2f prefix="" parent="tool0" mimic="${not use_gz}"/>
-  </xacro:if>
+  <xacro:include filename="$(find gp7_description)/urdf/gripper_robotiq_2f85.xacro"/>
+  <xacro:gripper_robotiq_2f85 prefix="" parent="tool0"/>
 
   <!-- Bolt the robot base to the world origin (0, 0, 0), as the task requires. -->
   <link name="world"/>
@@ -37,14 +24,8 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <xacro:if value="${use_r2c}">
+  <xacro:if value="$(arg gazebo)">
     <xacro:include filename="$(find gp7_description)/urdf/gp7.ros2_control.xacro"/>
-    <xacro:gp7_ros2_control prefix="" controllers_file="$(arg controllers_file)"
-                            gripper="$(arg gripper)"/>
-  </xacro:if>
-
-  <xacro:if value="${use_gz and not use_r2c}">
-    <xacro:include filename="$(find gp7_description)/urdf/gp7.gazebo.xacro"/>
-    <xacro:gp7_gazebo prefix="" gz_hold="true" gripper="$(arg gripper)"/>
+    <xacro:gp7_ros2_control prefix="" controllers_file="$(arg controllers_file)"/>
   </xacro:if>
 </robot>

@@ -60,22 +60,47 @@ def forward_kinematics(urdf_root, q):
             xyz = [float(v) for v in (o.get('xyz', '0 0 0') if o is not None else '0 0 0').split()]
             rpy = [float(v) for v in (o.get('rpy', '0 0 0') if o is not None else '0 0 0').split()]
             Tj = homog(rpy_matrix(*rpy), xyz)
+            qj = q.get(j.get('name'))
+            m = j.find('mimic')
+            if qj is None and m is not None:          # mimic joint: follows its master
+                qj = (float(m.get('multiplier', 1.0)) * q.get(m.get('joint'), 0.0)
+                      + float(m.get('offset', 0.0)))
+            qj = qj or 0.0
             if j.get('type') in ('revolute', 'continuous'):
                 axis = [float(v) for v in j.find('axis').get('xyz').split()]
-                Tj = Tj @ homog(axis_angle(axis, q.get(j.get('name'), 0.0)), [0, 0, 0])
+                Tj = Tj @ homog(axis_angle(axis, qj), [0, 0, 0])
             elif j.get('type') == 'prismatic':
                 axis = np.array([float(v) for v in j.find('axis').get('xyz').split()])
-                Tj = Tj @ homog(np.eye(3), axis * q.get(j.get('name'), 0.0))
+                Tj = Tj @ homog(np.eye(3), axis * qj)
             child = j.find('child').get('link')
             T[child] = T[parent] @ Tj
             stack.append(child)
     return T
 
 
+def _package_dir(pkg):
+    """Share directory of a ROS package: ament index if sourced, else search the source tree."""
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return get_package_share_directory(pkg)
+    except Exception:
+        for root, dirs, files in os.walk(PKG_ROOT):
+            if os.path.basename(root) == pkg and 'package.xml' in files:
+                return root
+    raise FileNotFoundError(f'package {pkg} not found')
+
+
 def mesh_path(uri):
+    """Local path of a mesh URI. Collada (.dae) visuals map to the package's collision STL
+    (same name), since only STL is read here."""
     if uri.startswith('file://'):
-        return uri[len('file://'):]
-    return os.path.join(PKG_ROOT, uri.replace('package://', ''))
+        path = uri[len('file://'):]
+    else:
+        pkg, rel = uri.replace('package://', '').split('/', 1)
+        path = os.path.join(_package_dir(pkg), rel)
+    if path.endswith('.dae'):
+        path = path.replace('/visual/', '/collision/')[:-4] + '.stl'
+    return path
 
 
 def primitive_tris(geom):

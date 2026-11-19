@@ -5,12 +5,11 @@
     ros2 launch gp7_gazebo gazebo.launch.py headless:=true           # server only
     ros2 launch gp7_gazebo gazebo.launch.py box_b_x:=0.5 box_b_y:=-0.4 box_b_yaw:=20
     ros2 launch gp7_gazebo gazebo.launch.py box_b_random:=true [box_b_seed:=7]
-    ros2 launch gp7_gazebo gazebo.launch.py sim_control:=gz_plugins  # Gazebo-only joint control
 
 While running, move Box B without restarting:
     ros2 run gp7_gazebo move_box_b.py 0.55 -0.30 [yaw_deg]  |  --random
 
-Pipeline (sim_control:=ros2_control, default):
+Pipeline:
   xacro -> robot_description -> robot_state_publisher
   ros_gz_sim create  : spawns "gp7" (gz_ros2_control loads controllers.yaml), "box_a", "box_b"
   spawner            : joint_state_broadcaster, arm_controller, gripper_controller
@@ -80,19 +79,18 @@ def generate_launch_description():
     world = LaunchConfiguration('world')
     headless = LaunchConfiguration('headless')
     rviz = LaunchConfiguration('rviz')
-    sim_control = LaunchConfiguration('sim_control')
-    use_r2c = PythonExpression(["'", sim_control, "' == 'ros2_control'"])
-    use_plugins = PythonExpression(["'", sim_control, "' == 'gz_plugins'"])
 
     robot_description = ParameterValue(
         Command(['xacro ', os.path.join(desc_pkg, 'urdf', 'gp7.urdf.xacro'),
-                 ' gazebo:=true gripper:=true sim_control:=', sim_control,
-                 ' controllers_file:=', controllers_file]),
+                 ' gazebo:=true controllers_file:=', controllers_file]),
         value_type=str)
 
-    # Gazebo resolves package://gp7_description/... by searching this path.
+    # Gazebo resolves package://gp7_description/... and package://robotiq_description/...
+    # (the 2F-85 meshes) by searching these paths.
     gz_resource_path = AppendEnvironmentVariable(
         'GZ_SIM_RESOURCE_PATH', os.path.dirname(desc_pkg))
+    gz_resource_path_robotiq = AppendEnvironmentVariable(
+        'GZ_SIM_RESOURCE_PATH', os.path.dirname(get_package_share_directory('robotiq_description')))
 
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
@@ -117,7 +115,6 @@ def generate_launch_description():
     # Start the controllers once the robot (and with it gz_ros2_control) exists.
     spawn_controllers = Node(
         package='controller_manager', executable='spawner', output='screen',
-        condition=IfCondition(use_r2c),
         arguments=['joint_state_broadcaster', 'arm_controller', 'gripper_controller',
                    '--controller-manager', '/controller_manager',
                    '--controller-manager-timeout', '60'])
@@ -128,12 +125,6 @@ def generate_launch_description():
         package='ros_gz_bridge', executable='parameter_bridge', name='gz_bridge', output='screen',
         parameters=[{'config_file': os.path.join(gz_pkg, 'config', 'gz_bridge.yaml'),
                      'use_sim_time': True}])
-    bridge_plugins = Node(
-        package='ros_gz_bridge', executable='parameter_bridge', name='gz_bridge_plugins',
-        output='screen', condition=IfCondition(use_plugins),
-        parameters=[{'config_file': os.path.join(gz_pkg, 'config', 'gz_bridge_plugins.yaml'),
-                     'use_sim_time': True}])
-
     rviz_node = Node(
         package='rviz2', executable='rviz2', condition=IfCondition(rviz),
         arguments=['-d', os.path.join(desc_pkg, 'rviz', 'display.rviz')],
@@ -143,8 +134,6 @@ def generate_launch_description():
         DeclareLaunchArgument('world', default_value=os.path.join(gz_pkg, 'worlds', 'gp7_world.sdf')),
         DeclareLaunchArgument('headless', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
-        DeclareLaunchArgument('sim_control', default_value='ros2_control',
-                              description='ros2_control | gz_plugins'),
         DeclareLaunchArgument('box_a_x', default_value='0.5', description='Box A centre x [m]'),
         DeclareLaunchArgument('box_a_y', default_value='0.5', description='Box A centre y [m]'),
         DeclareLaunchArgument('box_b_x', default_value='0.55', description='Box B centre x [m]'),
@@ -154,12 +143,12 @@ def generate_launch_description():
                               description='true: random reachable Box B location (overrides x/y)'),
         DeclareLaunchArgument('box_b_seed', default_value='', description='seed for box_b_random'),
         gz_resource_path,
+        gz_resource_path_robotiq,
         gz_sim,
         robot_state_publisher,
         spawn_robot,
         start_controllers,
         OpaqueFunction(function=spawn_boxes),
         bridge,
-        bridge_plugins,
         rviz_node,
     ])

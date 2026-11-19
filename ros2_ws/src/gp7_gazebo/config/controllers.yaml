@@ -1,8 +1,9 @@
 # ros2_control controllers for the GP7 in Gazebo (loaded by gz_ros2_control).
 #
-#   joint_state_broadcaster : /joint_states (arm + both fingers)
+#   joint_state_broadcaster : /joint_states (arm + the six Robotiq 2F-85 joints)
 #   arm_controller          : joint_trajectory_controller, VELOCITY command interface
-#   gripper_controller      : joint_trajectory_controller, EFFORT command interface (PID)
+#   gripper_controller      : joint_trajectory_controller, EFFORT command interface (PID),
+#                             all six 2F-85 joints (software mimic)
 controller_manager:
   ros__parameters:
     update_rate: 1000  # Hz = Gazebo physics rate (the finger PID needs the 1 ms step)
@@ -60,10 +61,15 @@ arm_controller:
 
 gripper_controller:
   ros__parameters:
-    # Both fingers get the same reference (Gazebo has no mimic constraint).
+    # Robotiq 2F-85: all six joints are driven (Gazebo's DART engine cannot enforce the URDF
+    # mimic constraints). The software sends q_j = multiplier_j * theta (config/gripper.yaml).
     joints:
-      - gripper_left_finger_joint
-      - gripper_right_finger_joint
+      - robotiq_85_left_knuckle_joint
+      - robotiq_85_right_knuckle_joint
+      - robotiq_85_left_inner_knuckle_joint
+      - robotiq_85_right_inner_knuckle_joint
+      - robotiq_85_left_finger_tip_joint
+      - robotiq_85_right_finger_tip_joint
     command_interfaces:
       - effort
     state_interfaces:
@@ -74,16 +80,31 @@ gripper_controller:
     open_loop_control: false
     state_publish_rate: 100.0
     action_monitor_rate: 50.0
-    # Finger force [N] = p * (q_ref - q) + d * (q_dot_ref - q_dot)
-    #  - grip force on a blocked object = p * squeeze, e.g. 3000 N/m * 6.7 mm = 20 N
-    #  - stability at the 1 ms step: d * dt / finger_mass = 60 * 0.001 / 0.1 = 0.6 < 2
+    # Joint torque [N m] = p (q_ref - q) + i * integral(q_ref - q) + d (q_dot_ref - q_dot)
+    # Stability at the 1 ms step needs p*dt^2/I and d*dt/I well below 1 (I = inertia the
+    # joint moves): knuckle 3.0e-4 kg m^2, inner knuckle / finger tip ~3.3e-5 kg m^2.
+    #  - knuckles: plain PD, grip force F = p * squeeze / lever (lever 85.5 mm):
+    #    20 N per pad <-> squeeze 0.086 rad. p must match knuckle_p_gain in gripper.yaml.
+    #    Grasps hold the inner knuckles and tips at the CONTACT angle (pads parallel).
+    #  - finger tips hold the pads parallel against the grip force (0.64 N m at 20 N,
+    #    lever 32 mm); p is limited by their tiny inertia, so a clamped integral removes the
+    #    remaining tilt once the grip force is steady.
+    #  - inner knuckles carry no load (the URDF four-bar loop is open): gentle PD.
     gains:
-      gripper_left_finger_joint:  {p: 3000.0, i: 0.0, d: 60.0, i_clamp: 0.0}
-      gripper_right_finger_joint: {p: 3000.0, i: 0.0, d: 60.0, i_clamp: 0.0}
-    # Tolerances disabled (0): when the fingers close on an object they stop short
-    # of the reference by design. Grasp success is checked from the finger positions.
+      robotiq_85_left_knuckle_joint:        {p: 20.0, i: 0.0,  d: 0.12,  i_clamp: 0.0}
+      robotiq_85_right_knuckle_joint:       {p: 20.0, i: 0.0,  d: 0.12,  i_clamp: 0.0}
+      robotiq_85_left_inner_knuckle_joint:  {p: 3.0,  i: 0.0,  d: 0.015, i_clamp: 0.0}
+      robotiq_85_right_inner_knuckle_joint: {p: 3.0,  i: 0.0,  d: 0.015, i_clamp: 0.0}
+      robotiq_85_left_finger_tip_joint:     {p: 8.0,  i: 40.0, d: 0.015, i_clamp: 1.0}
+      robotiq_85_right_finger_tip_joint:    {p: 8.0,  i: 40.0, d: 0.015, i_clamp: 1.0}
+    # Tolerances disabled (0): when the fingers close on an object they stop short of the
+    # reference by design. Grasp success is checked from the joint positions.
     constraints:
       stopped_velocity_tolerance: 0.0
       goal_time: 0.0
-      gripper_left_finger_joint:  {trajectory: 0.0, goal: 0.0}
-      gripper_right_finger_joint: {trajectory: 0.0, goal: 0.0}
+      robotiq_85_left_knuckle_joint:        {trajectory: 0.0, goal: 0.0}
+      robotiq_85_right_knuckle_joint:       {trajectory: 0.0, goal: 0.0}
+      robotiq_85_left_inner_knuckle_joint:  {trajectory: 0.0, goal: 0.0}
+      robotiq_85_right_inner_knuckle_joint: {trajectory: 0.0, goal: 0.0}
+      robotiq_85_left_finger_tip_joint:     {trajectory: 0.0, goal: 0.0}
+      robotiq_85_right_finger_tip_joint:    {trajectory: 0.0, goal: 0.0}

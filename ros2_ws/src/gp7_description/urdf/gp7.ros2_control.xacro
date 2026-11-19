@@ -6,13 +6,16 @@
                     (arm_controller = joint_trajectory_controller sends
                      q_dot_cmd = q_dot_ref + Kp (q_ref - q): velocity feed-forward
                      from the planner + position feedback)
-  Both fingers    : command = EFFORT, state = position + velocity
-                    (gripper_controller = joint_trajectory_controller with PID
-                     gains: force = Kp (q_ref - q) + Kd (q_dot_ref - q_dot))
-                    Force control because velocity/position-servoed fingers
-                    were not tracked reliably while all six arm joints are
-                    velocity-servoed (DART): one finger stalled depending on the
-                    arm pose. Force-driven fingers work in every pose.
+  Robotiq 2F-85   : all SIX gripper joints, command = EFFORT, state = position + velocity
+                    (gripper_controller = joint_trajectory_controller with PID gains:
+                     torque = Kp (q_ref - q) + Ki int(q_ref - q) + Kd (q_dot_ref - q_dot)).
+                    The URDF marks five of them as <mimic> of the knuckle; mimic="false"
+                    here lets them own a command interface, because Gazebo's DART engine
+                    cannot enforce mimic constraints - the software sends each joint
+                    multiplier * theta instead (config/gripper.yaml).
+                    Effort (force) control because velocity/position-servoed fingers were
+                    not tracked reliably while all six arm joints are velocity-servoed
+                    (DART): a finger stalled depending on the arm pose.
 
   How Gazebo executes the interfaces (gz_ros2_control/GazeboSimSystem):
     velocity -> JointVelocityCmd (ideal velocity servo, force-limited by the
@@ -33,8 +36,8 @@
     </joint>
   </xacro:macro>
 
-  <xacro:macro name="gp7_finger_interfaces" params="prefix side">
-    <joint name="${prefix}gripper_${side}_finger_joint">
+  <xacro:macro name="gp7_gripper_joint_interfaces" params="prefix name">
+    <joint name="${prefix}${name}" mimic="false">
       <command_interface name="effort"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -43,7 +46,7 @@
     </joint>
   </xacro:macro>
 
-  <xacro:macro name="gp7_ros2_control" params="prefix:='' controllers_file gripper:=true">
+  <xacro:macro name="gp7_ros2_control" params="prefix:='' controllers_file">
     <ros2_control name="GP7System" type="system">
       <hardware>
         <plugin>gz_ros2_control/GazeboSimSystem</plugin>
@@ -56,10 +59,12 @@
       <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_5_b"/>
       <xacro:gp7_arm_joint_interfaces prefix="${prefix}" name="joint_6_t"/>
 
-      <xacro:if value="${gripper}">
-        <xacro:gp7_finger_interfaces prefix="${prefix}" side="left"/>
-        <xacro:gp7_finger_interfaces prefix="${prefix}" side="right"/>
-      </xacro:if>
+      <xacro:gp7_gripper_joint_interfaces prefix="${prefix}" name="robotiq_85_left_knuckle_joint"/>
+      <xacro:gp7_gripper_joint_interfaces prefix="${prefix}" name="robotiq_85_right_knuckle_joint"/>
+      <xacro:gp7_gripper_joint_interfaces prefix="${prefix}" name="robotiq_85_left_inner_knuckle_joint"/>
+      <xacro:gp7_gripper_joint_interfaces prefix="${prefix}" name="robotiq_85_right_inner_knuckle_joint"/>
+      <xacro:gp7_gripper_joint_interfaces prefix="${prefix}" name="robotiq_85_left_finger_tip_joint"/>
+      <xacro:gp7_gripper_joint_interfaces prefix="${prefix}" name="robotiq_85_right_finger_tip_joint"/>
     </ros2_control>
 
     <gazebo>
