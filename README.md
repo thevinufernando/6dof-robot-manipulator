@@ -2,14 +2,14 @@
 
 A simulation of the **YASKAWA Motoman GP7**, a 6-axis industrial robot arm, picking up a small box and placing it on top of another box, keeping it upright the whole way. It runs in **Gazebo Harmonic** with **ROS 2 Jazzy**.
 
-The robot model is built from the manufacturer's CAD files, and every link frame follows the Denavit–Hartenberg convention, so the kinematics in code match the model exactly. A two-finger parallel gripper, modelled on the Robotiq 2F-85, is mounted on the flange.
+The robot model is built from the manufacturer's CAD files, and every link frame follows the Denavit–Hartenberg convention, so the kinematics in code match the model exactly. A **Robotiq 2F-85** gripper, taken from Robotiq's official ROS 2 description, is mounted on the flange.
 
 <!-- Add screenshots here -->
 
 ## Features
 
 - GP7 robot description (URDF/xacro) with link frames that match the D-H table
-- Two-finger gripper with a tool centre point (TCP) frame
+- Robotiq 2F-85 gripper with a tool centre point (TCP) frame; its linkage is driven joint by joint in simulation, so the pads stay parallel and grip with a set force
 - ros2_control in Gazebo: velocity-controlled arm and force-controlled gripper, both driven through `joint_trajectory_controller`
 - Gazebo world with the robot at the origin, a target box (Box A) and a box to pick (Box B)
 - Box B can be placed anywhere at launch, at a random reachable spot, or moved while the simulation runs
@@ -45,8 +45,9 @@ The robot model is built from the manufacturer's CAD files, and every link frame
 │   ├── gp7_kinematics/    # Forward and inverse kinematics (Python), IK command-line tool
 │   ├── gp7_control/       # Move to end-effector poses, gripper commands (ROS 2 nodes)
 │   ├── gp7_motion/        # Trajectory planning: velocity profiles, Cartesian paths, pick & place
-│   └── gp7_gazebo/        # Gazebo world, box models, launch file, ROS–Gazebo bridge
-└── tools/                 # Offline helpers: mesh preparation, D-H utilities, FK check
+│   ├── gp7_gazebo/        # Gazebo world, box models, launch file, ROS–Gazebo bridge
+│   └── robotiq-ros/       # Robotiq's ROS 2 packages (git submodule; only robotiq_description is built)
+└── tools/                 # Offline helpers: mesh preparation, D-H utilities, FK check, 2F-85 geometry
 ```
 
 The D-H table lives in `ros2_ws/src/gp7_description/config/kinematics.yaml`. The URDF and the tools both read from it.
@@ -55,7 +56,9 @@ The D-H table lives in `ros2_ws/src/gp7_description/config/kinematics.yaml`. The
 
 ```bash
 git clone <repository-url>
-cd <repository>/ros2_ws
+cd <repository>
+./tools/setup_robotiq.sh        # fetch the Robotiq submodule, skip its hardware-only packages
+cd ros2_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
@@ -78,7 +81,6 @@ Useful launch arguments:
 | `box_b_x`, `box_b_y`, `box_b_yaw` | `0.55`, `-0.30`, `0` | Box B position (m) and yaw (deg) |
 | `box_b_random` | `false` | Place Box B at a random reachable location |
 | `box_a_x`, `box_a_y` | `0.5`, `0.5` | Box A position (m) |
-| `sim_control` | `ros2_control` | `ros2_control`, or `gz_plugins` for Gazebo-only joint control |
 
 **RViz only**, with a slider for each joint:
 
@@ -92,9 +94,15 @@ ros2 launch gp7_description display.launch.py
 |---|---|---|---|
 | `joint_state_broadcaster` | `joint_state_broadcaster/JointStateBroadcaster` | all | – |
 | `arm_controller` | `joint_trajectory_controller/JointTrajectoryController` | `joint_1_s` … `joint_6_t` | velocity (feed-forward + position feedback) |
-| `gripper_controller` | `joint_trajectory_controller/JointTrajectoryController` | both finger joints | effort (PID) |
+| `gripper_controller` | `joint_trajectory_controller/JointTrajectoryController` | the six 2F-85 joints | effort (PID) |
 
 The configuration is in `ros2_ws/src/gp7_gazebo/config/controllers.yaml`.
+
+### Robotiq 2F-85 in simulation
+
+The 2F-85 has one motor: the knuckle angle (0 = open, 0.8 rad = closed) moves both fingers through a linkage, and the other five joints follow it (URDF mimic joints). Gazebo's physics engine does not enforce mimic joints, so all six joints are controlled and the software sends each one its share of the knuckle angle. For a grasp, the knuckles are pushed a little past the point where the pads touch the box; that squeeze sets the grip force (20 N per pad by default). The fingertip joints are held where the pads touch, so the pads stay parallel to the box. The gripper's geometry (pad gap vs knuckle angle, pad height, TCP) is measured from Robotiq's meshes by `tools/robotiq_2f85_geometry.py`.
+
+Robotiq's driver and controller packages talk to the real gripper over serial and fetch an SDK during the build, so `tools/setup_robotiq.sh` marks them to be skipped.
 
 ## Usage
 
@@ -112,7 +120,9 @@ Open and close the gripper:
 ```bash
 ros2 run gp7_control gripper open
 ros2 run gp7_control gripper close
-ros2 run gp7_control gripper grasp 0.05        # close on a 5 cm object with 20 N per finger
+ros2 run gp7_control gripper 0.06              # pads 6 cm apart
+ros2 run gp7_control gripper grasp 0.05        # close on a 5 cm object with 20 N per pad
+ros2 run gp7_control gripper theta 0.4         # knuckle angle (rad)
 ```
 
 Send pose goals as messages instead:

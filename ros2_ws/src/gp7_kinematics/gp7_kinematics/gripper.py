@@ -38,6 +38,9 @@ class GripperModel:
         tab = geo['table']
         self._theta = np.asarray(tab['theta'], float)
         self._width = np.asarray(tab['width'], float)          # decreasing with theta
+        self._pad_z = np.asarray(tab['pad_center_z'], float)   # from the Robotiq mounting face
+        self._tip_z = np.asarray(tab['tip_end_z'], float)
+        self._tcp_geo = float(geo['tcp_z'])                    # TCP from the mounting face
         self.open_width = float(geo['open_width'])
         self.lever = float(geo['lever_knuckle_to_pad'])
         self.tcp_z = self.coupling_length + float(geo['tcp_z'])  # flange -> TCP
@@ -67,6 +70,16 @@ class GripperModel:
 
     def width_for_theta(self, theta):
         return float(np.interp(theta, self._theta, self._width))
+
+    def pad_center_below_tcp(self, width):
+        """How far the pad centre is beyond the TCP (along the approach axis) when the pads
+        are `width` apart. 0 at the reference width; negative when wider (pads ride higher
+        on their arc)."""
+        return float(np.interp(self.theta_for_width(width), self._theta, self._pad_z)) - self._tcp_geo
+
+    def tip_below_tcp(self, width):
+        """How far the fingertips reach beyond the TCP when the pads are `width` apart."""
+        return float(np.interp(self.theta_for_width(width), self._theta, self._tip_z)) - self._tcp_geo
 
     def references(self, theta, theta_linkage=None):
         """Six joint references (joint_names order). The two knuckles get `theta`; the

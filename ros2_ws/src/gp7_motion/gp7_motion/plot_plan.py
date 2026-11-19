@@ -226,7 +226,8 @@ def summary(planner, plan):
           f'{"stretch":>7s} {"orient. err [deg]":>17s}')
     for st in plan.steps:
         if st.kind == 'gripper':
-            print(f'{st.name:13s} {"gripper":10s} {st.duration:6.2f}   fingers -> {st.finger_position:.4f} m')
+            print(f'{st.name:13s} {"gripper":10s} {st.duration:6.2f}   pad gap -> {st.width * 1000:.0f} mm '
+                  f'(knuckle {st.theta:.3f} rad)')
             continue
         tr = st.trajectory
         oe = f'{math.degrees(np.max(tr.orientation_error)):.1e}' if tr.kind == 'cartesian' else '(free)'

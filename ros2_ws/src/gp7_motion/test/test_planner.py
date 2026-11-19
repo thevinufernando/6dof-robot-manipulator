@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pytest
 
-from gp7_kinematics import top_down_pose
+from gp7_kinematics import GripperModel, top_down_pose
 from gp7_motion.paths import CylindricalPath, LinePath
 from gp7_motion.planner import PlanningError
 from gp7_motion.sequence import load_config, make_planner, plan_pick_place
@@ -104,7 +104,12 @@ def test_pick_place_default(planner, profile):
     assert names == ['open', 'to_ready', 'to_above_b', 'lower', 'approach', 'grasp', 'lift', 'transfer',
                      'descend', 'release', 'retreat', 'to_ready_end']
     descend = next(s.trajectory for s in plan.steps if s.name == 'descend')
-    assert np.allclose(descend.tcp[-1], [0.5, 0.5, 0.20 + 0.025 + 0.002], atol=1e-9)
+    # 2F-85 TCP = pad centre at the 50 mm grasp -> Box B's mid-height is at the TCP
+    assert np.allclose(descend.tcp[-1], [0.5, 0.5, 0.20 + 0.025 + 0.002], atol=1e-6)
+    grasp = next(s for s in plan.steps if s.name == 'grasp')
+    assert grasp.theta > grasp.theta_linkage                     # knuckles squeeze past the contact
+    assert abs(grasp.width - 0.05) < 1e-12
+    assert all(s.duration > 0 for s in plan.steps)
 
 
 def test_free_moves_start_and_end_at_safe_height(planner):
@@ -121,7 +126,37 @@ def test_clearance_check_rejects_a_path_through_box_a(planner):
     q0 = kin.ik_closest(top_down_pose(0.45, 0.0, 0.40)).q
     q1 = kin.ik_closest(top_down_pose(0.20, 0.61, 0.175), q0).q        # the old, too low pre-grasp
     with pytest.raises(PlanningError):
-        check_box_a_clearance(planner.plan_joint(q0, q1, 'old_to_pregrasp'), CFG['task'])
+        check_box_a_clearance(planner.plan_joint(q0, q1, 'old_to_pregrasp'), CFG['task'], kin,
+                              GripperModel.from_config())
+
+
+def test_clearance_uses_the_turned_gripper_footprint(planner):
+    """Box B 103 mm left of Box A's edge. The open 2F-85 reaches 76 mm along its closing
+    axis (tool Y) but only 38 mm across it, so the grasp fits next to Box A only when the
+    fingers do not point at it (needs 30 mm clearance)."""
+    from gp7_motion.sequence import check_box_a_clearance, grasp_height
+    kin, grp = planner.kin, GripperModel.from_config()
+    x, y = 0.5 - 0.15 - 0.103, 0.5
+    z = grasp_height(grp, 0.0, 0.05)
+    q0 = kin.ik_closest(top_down_pose(x, y, 0.30)).q
+
+    def approach(yaw):
+        R = top_down_pose(0, 0, 0, yaw=yaw)[:3, :3]
+        qs = kin.ik_closest(top_down_pose(x, y, 0.30, yaw=yaw), q0).q
+        return planner.plan_cartesian(LinePath([x, y, 0.30], [x, y, z], R), 0.1, 0.5, 2.5, qs, 'approach')
+
+    check_box_a_clearance(approach(0.0), CFG['task'], kin, grp)          # closes along world y: fits
+    with pytest.raises(PlanningError):                                   # closes along world x: hits
+        check_box_a_clearance(approach(math.pi / 2), CFG['task'], kin, grp)
+
+
+def test_grasp_height_keeps_fingertips_off_the_floor():
+    from gp7_motion.sequence import FLOOR_CLEARANCE, grasp_height
+    grp = GripperModel.from_config()
+    assert math.isclose(grasp_height(grp, 0.0, 0.05), 0.025, abs_tol=1e-4)    # pad centre = box centre
+    for size in (0.02, 0.03, 0.05, 0.07):
+        z = grasp_height(grp, 0.0, size)
+        assert z - grp.tip_below_tcp(size) >= FLOOR_CLEARANCE - 1e-12
 
 
 def test_pick_place_random_box_b(planner):

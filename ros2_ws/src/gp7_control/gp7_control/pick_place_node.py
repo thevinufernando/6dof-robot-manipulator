@@ -13,7 +13,8 @@
 4. Execute the steps in order: arm segments -> arm_controller (FollowJointTrajectory with
    positions, velocities, accelerations), gripper steps -> gripper_controller.
    Before each arm segment the measured joints are compared with the planned start.
-   After the grasp, the finger positions are checked (the fingers must stop on the box).
+   After the grasp, the 2F-85 knuckle angle is checked: the pads must stop on the box
+   (pad gap = box width +-4 mm), else nothing was grasped.
 5. Monitor Box B the whole time and report its maximum tilt while carried and the final
    placement error; optionally save CSV logs (log_dir) of the planned and measured motion.
 """
@@ -67,30 +68,45 @@ class PickPlaceNode(GP7Commander):
         self.cfg['task']['box_a']['x'], self.cfg['task']['box_a']['y'] = map(float, self.box_a_xy)
         self.planner = make_planner(self.cfg, self.kin)
 
-        self.t0 = time.monotonic()            # common time origin of all logs
+        # Logs use SIMULATION time (message stamps), the clock the controllers run on.
+        # Wall-clock stamps would show a fake tracking lag whenever Gazebo runs slower
+        # than real time.
+        self.sim_t = None                     # latest /joint_states stamp [s]
+        self.t0 = None                        # common time origin of all logs (sim time)
         self.step_log = []                    # (name, kind, start, end) of executed steps
         self.box = None                       # latest Box B pose message
         self.carrying = False
-        self.box_log = []                     # (wall time, x, y, z, tilt, carrying)
-        self.joint_log = []                   # (wall time, q..., qd...)
+        self.box_log = []                     # (sim time, x, y, z, tilt, carrying)
+        self.joint_log = []                   # (sim time, q..., qd...)
         self.create_subscription(PoseStamped, '/box_b/pose', self._on_box, 10)
         self.create_subscription(JointState, '/joint_states', self._on_js_log, 10)
         self.path_pub = self.create_publisher(Path, '/pick_place/planned_path', LATCHED)
         self.marker_pub = self.create_publisher(MarkerArray, '/pick_place/markers', LATCHED)
 
     # ------------------------------------------------------------------ callbacks
+    @staticmethod
+    def _stamp(msg):
+        return msg.header.stamp.sec + 1e-9 * msg.header.stamp.nanosec
+
+    def now(self):
+        """Simulation time [s] (latest /joint_states stamp), wall clock until one arrived."""
+        return self.sim_t if self.sim_t is not None else time.monotonic()
+
     def _on_box(self, msg):
         self.box = msg
         p, o = msg.pose.position, msg.pose.orientation
-        self.box_log.append((time.monotonic(), p.x, p.y, p.z, _tilt_deg(o), self.carrying))
+        t = self._stamp(msg) or self.now()
+        self.box_log.append((t, p.x, p.y, p.z, _tilt_deg(o), self.carrying))
 
     def _on_js_log(self, msg):
+        if msg.header.stamp.sec or msg.header.stamp.nanosec:
+            self.sim_t = self._stamp(msg)
         if not self.log_dir:
             return
         pos = dict(zip(msg.name, msg.position))
         vel = dict(zip(msg.name, msg.velocity)) if msg.velocity else {}
         if all(n in pos for n in JOINT_NAMES):
-            self.joint_log.append([time.monotonic()] + [pos[n] for n in JOINT_NAMES]
+            self.joint_log.append([self.now()] + [pos[n] for n in JOINT_NAMES]
                                   + [vel.get(n, float('nan')) for n in JOINT_NAMES])
 
     def wait_for_box(self, timeout=15.0):
@@ -151,13 +167,18 @@ class PickPlaceNode(GP7Commander):
     # ------------------------------------------------------------------ main sequence
     def run(self):
         q0 = self.current_q()
+        end = time.monotonic() + 5.0                 # wait for a stamped /joint_states (sim clock)
+        while self.sim_t is None and time.monotonic() < end:
+            rclpy.spin_once(self, timeout_sec=0.05)
+        self.t0 = self.now()
         msg = self.wait_for_box()
         p, o = msg.pose.position, msg.pose.orientation
         box_b = (p.x, p.y, p.z, _yaw(o))
         self.get_logger().info(f'Box B at ({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) yaw '
                                f'{math.degrees(box_b[3]):.1f} deg; Box A at {self.box_a_xy}')
         try:
-            plan = plan_pick_place(self.planner, self.cfg, box_b, q0, profile=self.profile)
+            plan = plan_pick_place(self.planner, self.cfg, box_b, q0, profile=self.profile,
+                                   gripper=self.grp)
         except PlanningError as e:
             self.get_logger().error(f'planning failed, nothing moved: {e}')
             return False
@@ -166,7 +187,8 @@ class PickPlaceNode(GP7Commander):
                                f'grasp yaw {math.degrees(plan.psi):.1f} deg')
         for st in plan.steps:
             extra = (f'{st.trajectory.kind:9s} {st.duration:5.2f} s' if st.kind == 'arm'
-                     else f'gripper   -> {st.finger_position:.4f} m')
+                     else f'gripper   {st.duration:5.2f} s -> pad gap {st.width * 1000:.0f} mm '
+                          f'(knuckle {st.theta:.3f} rad)')
             self.get_logger().info(f'  {st.name:13s} {extra}{"  [carrying]" if st.carrying else ""}')
         self.publish_plan(plan, box_b)
         if self.log_dir:
@@ -193,16 +215,18 @@ class PickPlaceNode(GP7Commander):
         t_start = time.monotonic()
         for st in plan.steps:
             self.carrying = st.carrying
-            t_step = time.monotonic()
+            t_step = self.now()
             if st.kind == 'gripper':
-                ok, text = self.gripper(st.finger_position, st.duration)
+                # the plan budgets a full stroke for the first 'open' (start unknown); here the
+                # opening is measured, so time it from the actual travel
+                dur = None if st.name == 'open' else st.duration
+                ok, text = self.gripper(st.theta, dur, theta_linkage=st.theta_linkage)
                 self.settle(0.3)
                 if ok and st.name == 'grasp':
-                    f = self.current_fingers()
-                    contact = (2 * self.stroke - self.cfg['task']['box_b_size']) / 2
-                    if not all(abs(x - contact) < 0.004 for x in f):
-                        ok, text = False, (f'grasp failed: fingers at {f[0]:.4f}/{f[1]:.4f} m, '
-                                           f'expected ~{contact:.4f} m (box not between the fingers)')
+                    size = self.cfg['task']['box_b_size']
+                    if not self.grp.contact_ok(self.current_knuckle(), size):
+                        ok, text = False, (f'grasp failed: pads stopped {self.current_width() * 1000:.1f} mm '
+                                           f'apart, expected ~{size * 1000:.0f} mm (box not between the pads)')
             else:
                 tr = st.trajectory
                 dev = float(np.max(np.abs(self.current_q() - tr.q_start)))
@@ -213,7 +237,7 @@ class PickPlaceNode(GP7Commander):
                 if ok:
                     err = float(np.max(np.abs(self.current_q() - tr.q_end)))
                     text += f' | final joint error {math.degrees(err):.3f} deg'
-            self.step_log.append((st.name, st.kind, t_step - self.t0, time.monotonic() - self.t0))
+            self.step_log.append((st.name, st.kind, t_step - self.t0, self.now() - self.t0))
             if ok:
                 self.get_logger().info(f'[{time.monotonic() - t_start:6.2f} s] {st.name}: {text}')
             else:

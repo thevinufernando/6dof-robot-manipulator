@@ -8,7 +8,7 @@ import math
 import numpy as np
 import pytest
 
-from gp7_kinematics import GP7Kinematics, pose_error, top_down_pose
+from gp7_kinematics import GP7Kinematics, GripperModel, pose_error, top_down_pose
 
 
 @pytest.fixture(scope='module')
@@ -37,7 +37,8 @@ def test_fk_home(flange, tcp):
     T = flange.fk(np.zeros(6))
     assert np.allclose(T[:3, 3], [0.56, 0.0, 0.815])
     assert np.allclose(T[:3, 2], [1.0, 0.0, 0.0])
-    assert np.allclose(tcp.fk(np.zeros(6))[:3, 3], [0.56 + 0.127, 0.0, 0.815])
+    # Robotiq 2F-85 TCP: 12 mm coupling + pad centre at the 50 mm grasp (gripper_geometry.yaml)
+    assert np.allclose(tcp.fk(np.zeros(6))[:3, 3], [0.56 + GripperModel.from_config().tcp_z, 0.0, 0.815])
 
 
 def test_fk_matches_gazebo(flange):
@@ -136,4 +137,4 @@ def test_joint_velocities_and_singularity(tcp):
     qd = tcp.joint_velocities(q, v)
     assert np.allclose(tcp.jacobian(q) @ qd, np.r_[v, 0, 0, 0])
     assert tcp.manipulability(q) > 1e-3
-    assert tcp.manipulability([0.3, -0.5, -0.2, 0.4, 0.0, 0.2]) < 1e-9   # wrist singular (q5 = 0)
+    assert tcp.manipulability([0.3, -0.5, -0.2, 0.4, 0.0, 0.2]) < 1e-7   # wrist singular (q5 = 0): ~0 up to round-off

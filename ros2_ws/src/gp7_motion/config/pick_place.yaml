@@ -23,6 +23,5 @@ task:
   approach_height: 0.15                  # pre-grasp / retreat height above the grasp/place TCP
   z_safe: 0.35                           # TCP height during the transfer
   place_clearance: 0.002                 # Box B is released this far above Box A's top
-  grip_force: 20.0                       # N per finger
-  finger_p_gain: 3000.0                  # must match gripper_controller gains.p (controllers.yaml)
-  gripper_time: 0.6                      # s to open / close
+  grip_force: 20.0                       # N per pad (Robotiq 2F-85; gripper model in gp7_kinematics)
+  # gripper open/close times come from the 2F-85 model (gripper.yaml open_close_time)
